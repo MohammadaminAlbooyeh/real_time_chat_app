@@ -1,32 +1,33 @@
 # Pokerito
 
-Pokerito is a simple console-based card game written in Java. The game is inspired by poker, but with much simpler rules and gameplay.
+**Pokerito** is a fun and easy-to-play console card game written in Java. Inspired by poker, it offers a simplified and fast-paced experience for all ages.
 
-## How to Play
+## Game Rules
 
-1. When you start the game, both you and the computer are dealt a random card.
-2. The dealer will then draw five "river" cards, one at a time.
-3. Each time a river card is drawn, if it matches your card, you get a point. If it matches the computer's card, the computer gets a point.
-4. After all five river cards are drawn, whoever has the most matches wins!
-5. If both have the same number of matches, it's a tie.
+- At the start, both you and the computer receive a random card.
+- The dealer draws five "river" cards, one at a time.
+- Each time a river card matches your card, you earn a point. If it matches the computer's card, the computer earns a point.
+- After all five river cards are revealed, the player with the most matches wins.
+- If both players have the same number of matches, the game ends in a tie.
 
-## How to Run
+## Getting Started
 
-1. Make sure you have Java installed on your system.
-2. Compile the code:
+1. Ensure Java is installed on your computer.
+2. Open a terminal and navigate to the project directory.
+3. Compile the game:
     ```sh
     javac Pokerito.java
     ```
-3. Run the game:
+4. Run the game:
     ```sh
     java Pokerito
     ```
 
-## Example Output
+## Sample Gameplay
 
 ```
 Welcome to Pokerito!
-Player's card:
+Your card:
    _____
   |A _  |
   | ( ) |
@@ -42,12 +43,16 @@ Computer's card:
   |  o  |
   |____Z|
 
-Now, the dealer will draw five river cards. Press Enter to continue...
+The dealer will now draw five river cards. Press Enter to continue...
 ...
 Your matches: 1
 Computer's matches: 2
 Computer wins!
 ```
 
-## Code Overview
-The game is implemented in a single Java class `Pokerito`. It uses basic Java features such as arrays, loops, and random number generation to simulate the card drawing and scoring.
+## About the Code
+
+The entire game logic is contained in the `Pokerito.java` file. The code uses arrays, loops, and Java's random number generator to simulate card drawing and scoring. The game is designed to be simple, readable, and easy to modify or extend.
+
+---
+Enjoy playing Pokerito!
