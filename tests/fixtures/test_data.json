@@ -1,0 +1,15 @@
+{
+  "users": [
+    {"username": "alice", "email": "alice@test.com", "password": "password123"},
+    {"username": "bob", "email": "bob@test.com", "password": "password123"},
+    {"username": "charlie", "email": "charlie@test.com", "password": "password123"}
+  ],
+  "rooms": [
+    {"name": "General", "description": "General discussion"},
+    {"name": "Random", "description": "Random chat"}
+  ],
+  "messages": [
+    {"content": "Hello everyone!", "type": "text"},
+    {"content": "Hey there!", "type": "text"}
+  ]
+}

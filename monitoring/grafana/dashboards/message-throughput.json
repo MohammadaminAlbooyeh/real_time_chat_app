@@ -1,0 +1,9 @@
+{
+  "title": "Message Throughput",
+  "uid": "message-throughput",
+  "panels": [
+    {"title": "Messages Sent", "type": "graph", "targets": [{"expr": "rate(messages_sent_total[5m])", "legendFormat": "messages/s"}]},
+    {"title": "Messages Per Room", "type": "graph", "targets": [{"expr": "topk(10, rate(messages_sent_total[5m]))", "legendFormat": "room {{room_id}}"}]}
+  ],
+  "schemaVersion": 38
+}

@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  api-service:
+    build:
+      context: ./services/api-service
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/api-service:/app
+    ports:
+      - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  websocket-service:
+    build:
+      context: ./services/websocket-service
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/websocket-service:/app
+    ports:
+      - "8001:8001"
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  worker-service:
+    build:
+      context: ./services/worker-service
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/worker-service:/app
+
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/search-service:/app
+    ports:
+      - "8002:8002"
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+
+  frontend-web:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend/web/src:/app/src
+    ports:
+      - "3000:3000"

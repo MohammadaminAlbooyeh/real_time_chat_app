@@ -1,0 +1,9 @@
+{
+  "title": "Database Metrics",
+  "uid": "database-metrics",
+  "panels": [
+    {"title": "Active Connections", "type": "graph", "targets": [{"expr": "pg_stat_activity_count", "legendFormat": "connections"}]},
+    {"title": "Query Duration", "type": "graph", "targets": [{"expr": "rate(pg_stat_activity_max_tx_duration[5m])", "legendFormat": "max tx duration"}]}
+  ],
+  "schemaVersion": 38
+}

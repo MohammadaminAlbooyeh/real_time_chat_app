@@ -1,0 +1,10 @@
+{
+  "title": "WebSocket Connections",
+  "uid": "websocket-connections",
+  "panels": [
+    {"title": "Active Connections", "type": "graph", "targets": [{"expr": "websocket_active_connections", "legendFormat": "active"}]},
+    {"title": "Connection Rate", "type": "graph", "targets": [{"expr": "rate(websocket_connections_total[5m])", "legendFormat": "connections/s"}]},
+    {"title": "Message Throughput", "type": "graph", "targets": [{"expr": "rate(websocket_messages_total[5m])", "legendFormat": "messages/s"}]}
+  ],
+  "schemaVersion": 38
+}
