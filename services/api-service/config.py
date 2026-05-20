@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     max_rooms_per_user: int = 100
     pagination_default_limit: int = 50
     pagination_max_limit: int = 200
+    upload_dir: str = "uploads"
+    max_upload_size: int = 50 * 1024 * 1024
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

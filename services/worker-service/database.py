@@ -10,5 +10,6 @@ def get_session():
     session = SessionLocal()
     try:
         return session
-    finally:
+    except Exception:
         session.close()
+        raise

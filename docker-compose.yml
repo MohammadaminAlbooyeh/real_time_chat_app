@@ -101,6 +101,16 @@ services:
     networks:
       - chat-network
 
+  frontend-web:
+    build: ./frontend/web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-service
+      - websocket-service
+    networks:
+      - chat-network
+
   prometheus:
     image: prom/prometheus:latest
     volumes:

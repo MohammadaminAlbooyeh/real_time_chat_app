@@ -85,3 +85,14 @@ CREATE TABLE IF NOT EXISTS user_status_history (
     status VARCHAR(20) NOT NULL,
     changed_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    data JSONB DEFAULT '{}',
+    notification_type VARCHAR(20) NOT NULL DEFAULT 'push',
+    is_read BOOLEAN DEFAULT FALSE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);

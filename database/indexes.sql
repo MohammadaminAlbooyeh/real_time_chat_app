@@ -21,3 +21,6 @@ CREATE INDEX IF NOT EXISTS idx_rooms_created_by ON rooms(created_by_id);
 
 CREATE INDEX IF NOT EXISTS idx_user_status_history_user ON user_status_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_status_history_time ON user_status_history(changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON user_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_unread ON user_notifications(user_id) WHERE is_read = FALSE;
