@@ -35,6 +35,15 @@ async def subscribe(channel: str, callback: Callable):
                 await callback(data)
 
 
+async def psubscribe(pattern: str, callback: Callable):
+    if pubsub:
+        await pubsub.psubscribe(pattern)
+        async for message in pubsub.listen():
+            if message["type"] == "pmessage":
+                data = json.loads(message["data"])
+                await callback(data)
+
+
 async def set_user_presence(user_id: str, status: str):
     if redis:
         await redis.set(f"presence:{user_id}", status)

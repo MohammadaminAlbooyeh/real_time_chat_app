@@ -1,8 +1,7 @@
 import uuid
 import os
-import shutil
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -35,7 +34,8 @@ MAX_FILE_SIZE = 50 * 1024 * 1024
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_file(
     file: UploadFile = File(...),
-    room_id: str | None = None,
+    room_id: str = Query(...),
+    message_id: str | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -52,9 +52,34 @@ async def upload_file(
             detail=f"File size exceeds {MAX_FILE_SIZE // (1024*1024)}MB limit",
         )
 
+    membership = await db.execute(
+        select(RoomMember).where(
+            RoomMember.room_id == uuid.UUID(room_id),
+            RoomMember.user_id == user.id,
+        )
+    )
+    if membership.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this room",
+        )
+
+    if message_id:
+        msg_result = await db.execute(
+            select(Message).where(
+                Message.id == uuid.UUID(message_id),
+                Message.room_id == uuid.UUID(room_id),
+            )
+        )
+        if msg_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found in this room",
+            )
+
     file_ext = os.path.splitext(file.filename or "file")[1]
-    file_id = str(uuid.uuid4())
-    stored_name = f"{file_id}{file_ext}"
+    file_uuid = uuid.uuid4()
+    stored_name = f"{file_uuid}{file_ext}"
 
     date_path = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     dest_dir = os.path.join(UPLOAD_DIR, date_path)
@@ -67,8 +92,29 @@ async def upload_file(
     file_url = f"/uploads/{date_path}/{stored_name}"
     file_type = ALLOWED_CONTENT_TYPES.get(file.content_type, "other")
 
+    if message_id:
+        attachment = MessageAttachment(
+            id=file_uuid,
+            message_id=uuid.UUID(message_id),
+            file_name=file.filename or "file",
+            file_url=file_url,
+            file_type=file_type,
+            file_size=len(content),
+        )
+        db.add(attachment)
+        await db.flush()
+        return {
+            "id": str(attachment.id),
+            "message_id": message_id,
+            "file_name": attachment.file_name,
+            "file_url": attachment.file_url,
+            "file_type": attachment.file_type,
+            "file_size": attachment.file_size,
+            "mime_type": file.content_type,
+        }
+
     return {
-        "id": file_id,
+        "id": str(file_uuid),
         "file_name": file.filename,
         "file_url": file_url,
         "file_type": file_type,

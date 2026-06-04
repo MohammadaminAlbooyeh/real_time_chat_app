@@ -1,7 +1,11 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { View, Text, FlatList, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native'
 import { api } from '../services/api'
 import wsService from '../services/websocket'
+import ChatHeader from '../components/ChatHeader'
+import InputBar from '../components/InputBar'
+import MessageBubble from '../components/MessageBubble'
+import { config } from '../config'
 
 export default function ChatScreen({ route, navigation }) {
   const { roomId, roomName } = route.params
@@ -9,12 +13,16 @@ export default function ChatScreen({ route, navigation }) {
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [typingUsers, setTypingUsers] = useState({})
+  const [currentUserId, setCurrentUserId] = useState(null)
   const flatRef = useRef(null)
+  const typingTimerRef = useRef(null)
 
   useEffect(() => {
     navigation.setOptions({ title: roomName })
     loadMessages()
     wsService.joinRoom(roomId)
+
+    api.get('/users/me').then(user => setCurrentUserId(user.id)).catch(() => {})
 
     const unsub1 = wsService.on('message:new', (payload) => {
       if (payload.room_id === roomId) {
@@ -47,6 +55,7 @@ export default function ChatScreen({ route, navigation }) {
       unsub1()
       unsub2()
       clearInterval(interval)
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
     }
   }, [roomId])
 
@@ -61,12 +70,22 @@ export default function ChatScreen({ route, navigation }) {
     }
   }
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (!text.trim()) return
     wsService.sendMessage(roomId, text.trim())
     wsService.stopTyping(roomId)
     setText('')
-  }
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+  }, [text, roomId])
+
+  const handleChangeText = useCallback((value) => {
+    setText(value)
+    wsService.startTyping(roomId)
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    typingTimerRef.current = setTimeout(() => {
+      wsService.stopTyping(roomId)
+    }, config.typingDebounceMs)
+  }, [roomId])
 
   const typingNames = Object.values(typingUsers).map(u => u.username)
   const typingText = typingNames.length === 1 ? `${typingNames[0]} is typing`
@@ -76,6 +95,11 @@ export default function ChatScreen({ route, navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+      <ChatHeader
+        title={roomName}
+        onBack={() => navigation.goBack()}
+        onProfile={() => navigation.navigate('Profile')}
+      />
       {loading ? (
         <View style={styles.loading} />
       ) : (
@@ -85,11 +109,7 @@ export default function ChatScreen({ route, navigation }) {
           keyExtractor={item => item.id}
           inverted
           renderItem={({ item }) => (
-            <View style={styles.message}>
-              <Text style={styles.sender}>{item.sender_username || 'System'}</Text>
-              <Text style={styles.content}>{item.is_deleted ? 'This message was deleted' : item.content}</Text>
-              <Text style={styles.time}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-            </View>
+            <MessageBubble message={item} isOwn={item.sender_id === currentUserId} />
           )}
           contentContainerStyle={styles.listContent}
         />
@@ -97,18 +117,7 @@ export default function ChatScreen({ route, navigation }) {
 
       {typingText ? <Text style={styles.typing}>{typingText}</Text> : null}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={v => { setText(v); wsService.startTyping(roomId) }}
-          placeholder="Type a message..."
-          multiline
-        />
-        <TouchableOpacity style={styles.sendButton} onPress={handleSend} disabled={!text.trim()}>
-          <Text style={styles.sendText}>Send</Text>
-        </TouchableOpacity>
-      </View>
+      <InputBar value={text} onChangeText={handleChangeText} onSend={handleSend} />
     </KeyboardAvoidingView>
   )
 }
@@ -117,13 +126,5 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { padding: 12 },
-  message: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 },
-  sender: { fontSize: 12, fontWeight: '600', color: '#4f46e5', marginBottom: 2 },
-  content: { fontSize: 15, color: '#0f172a' },
-  time: { fontSize: 11, color: '#94a3b8', marginTop: 4, textAlign: 'right' },
   typing: { paddingHorizontal: 16, paddingVertical: 4, fontSize: 12, color: '#64748b', fontStyle: 'italic' },
-  inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e2e8f0', alignItems: 'flex-end' },
-  input: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, fontSize: 15, maxHeight: 100, backgroundColor: '#f8fafc' },
-  sendButton: { backgroundColor: '#4f46e5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginLeft: 8 },
-  sendText: { color: '#fff', fontWeight: '600' },
 })

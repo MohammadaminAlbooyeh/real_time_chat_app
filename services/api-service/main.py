@@ -5,6 +5,7 @@ from config import settings
 from middleware import register_middlewares
 from database import engine
 from models.base import Base
+import redis_client
 
 from fastapi.staticfiles import StaticFiles
 
@@ -16,13 +17,16 @@ from routes.messages import router as messages_router
 from routes.relationships import router as relationships_router
 from routes.search import router as search_router
 from routes.upload import router as upload_router
+from routes.notifications import router as notifications_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await redis_client.connect_redis()
     yield
+    await redis_client.disconnect_redis()
     await engine.dispose()
 
 
@@ -50,3 +54,4 @@ app.include_router(messages_router, prefix="/api/v1")
 app.include_router(relationships_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
+app.include_router(notifications_router, prefix="/api/v1")

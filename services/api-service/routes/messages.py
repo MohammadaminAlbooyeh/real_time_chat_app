@@ -20,6 +20,7 @@ from schemas.message_schemas import (
 from schemas.pagination import PaginatedResponse
 from dependencies import get_current_user
 from config import settings
+import redis_client
 
 router = APIRouter(prefix="/rooms/{room_id}/messages", tags=["messages"])
 
@@ -194,7 +195,13 @@ async def edit_message(
     msg.edited_at = datetime.now(timezone.utc)
     db.add(msg)
     await db.flush()
-    return message_to_response(msg)
+
+    updated = message_to_response(msg)
+    await redis_client.publish(f"room:{room_id}", {
+        "type": "message:updated",
+        "payload": updated.model_dump(mode="json"),
+    })
+    return updated
 
 
 @router.delete("/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -219,6 +226,11 @@ async def delete_message(
         )
     msg.is_deleted = True
     db.add(msg)
+
+    await redis_client.publish(f"room:{room_id}", {
+        "type": "message:deleted",
+        "payload": {"room_id": str(room_id), "id": str(message_id)},
+    })
 
 
 @router.post("/{message_id}/reactions", response_model=ReactionResponse, status_code=status.HTTP_201_CREATED)
@@ -262,13 +274,28 @@ async def add_reaction(
     await db.refresh(reaction)
     reaction.user = user
 
-    return ReactionResponse(
+    reaction_resp = ReactionResponse(
         id=reaction.id,
         user_id=user.id,
         username=user.username,
         emoji=reaction.emoji,
         created_at=reaction.created_at,
     )
+
+    await redis_client.publish(f"room:{room_id}", {
+        "type": "message:reaction",
+        "payload": {
+            "id": str(reaction.id),
+            "room_id": str(room_id),
+            "message_id": str(message_id),
+            "user_id": str(user.id),
+            "username": user.username,
+            "emoji": reaction.emoji,
+            "created_at": reaction.created_at.isoformat(),
+        },
+    })
+
+    return reaction_resp
 
 
 @router.delete("/{message_id}/reactions/{reaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -292,3 +319,13 @@ async def remove_reaction(
             status_code=status.HTTP_404_NOT_FOUND, detail="Reaction not found"
         )
     await db.delete(reaction)
+
+    await redis_client.publish(f"room:{room_id}", {
+        "type": "message:reaction",
+        "payload": {
+            "room_id": str(room_id),
+            "message_id": str(message_id),
+            "reaction_id": str(reaction_id),
+            "user_id": str(user.id),
+        },
+    })

@@ -3,6 +3,7 @@ from models.user import User
 from models.room import Room, RoomMember
 from models.message import Message, MessageReaction, MessageAttachment
 from models.relationship import Relationship
+from models.notification import UserNotification
 
 __all__ = [
     "Base",
@@ -13,4 +14,5 @@ __all__ = [
     "MessageReaction",
     "MessageAttachment",
     "Relationship",
+    "UserNotification",
 ]

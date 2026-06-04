@@ -1,4 +1,6 @@
-const WS_URL = 'ws://localhost:8001/ws'
+import { config } from '../config'
+
+const WS_URL = config.wsUrl
 
 class WebSocketService {
   constructor() {

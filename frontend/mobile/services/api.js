@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store'
+import { config } from '../config'
 
-const API_URL = 'http://localhost:8000/api/v1'
+const API_URL = config.apiUrl
 
 let accessToken = null
 let refreshToken = null
