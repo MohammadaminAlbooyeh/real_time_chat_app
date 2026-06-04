@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat App - Project Structure</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e0e0e0;
+            background: #f5f5f5;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab-button:hover {
+            background: #e0e0e0;
+            color: #667eea;
+        }
+
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 40px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Architecture Diagram */
+        .diagram-container {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+
+        svg {
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* Directory Tree */
+        .tree {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 25px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+
+        .tree-folder {
+            color: #569cd6;
+        }
+
+        .tree-file {
+            color: #d4d4d4;
+        }
+
+        .tree-config {
+            color: #ce9178;
+        }
+
+        .tree-comment {
+            color: #6a9955;
+        }
+
+        .tree-special {
+            color: #dcdcaa;
+        }
+
+        .indent {
+            display: inline-block;
+            width: 20px;
+        }
+
+        .branch {
+            display: inline-block;
+        }
+
+        /* Tech Stack */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .tech-card {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 25px;
+            transition: all 0.3s ease;
+        }
+
+        .tech-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.2);
+        }
+
+        .tech-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .tech-item {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .tech-item:last-child {
+            border-bottom: none;
+        }
+
+        .tech-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .tech-desc {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        /* Layer Diagram */
+        .layers {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .layer {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .layer.client {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .layer.api {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .layer.data {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .layer-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .layer-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .layer-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 3px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .layer-item strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .layer-item small {
+            opacity: 0.8;
+        }
+
+        /* Microservices */
+        .microservices {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin: 30px 0;
+        }
+
+        .service-card {
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .service-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+        }
+
+        .service-header h4 {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .service-port {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+
+        .service-body {
+            padding: 20px;
+        }
+
+        .service-item {
+            margin: 10px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .service-item:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .footer {
+            background: #f5f5f5;
+            padding: 20px 40px;
+            text-align: center;
+            border-top: 2px solid #e0e0e0;
+            color: #666;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 0.95em;
+            opacity: 0.9;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            color: #333;
+            margin: 20px 0 10px 0;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        li {
+            padding: 8px 0 8px 25px;
+            position: relative;
+        }
+
+        li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Real-Time Chat App</h1>
+            <p>Microservices Architecture & Project Structure</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab(0)">📐 Architecture</button>
+            <button class="tab-button" onclick="showTab(1)">📁 File Structure</button>
+            <button class="tab-button" onclick="showTab(2)">🎯 Services</button>
+            <button class="tab-button" onclick="showTab(3)">🛠️ Tech Stack</button>
+            <button class="tab-button" onclick="showTab(4)">📊 Layers</button>
+            <button class="tab-button" onclick="showTab(5)">📈 Stats</button>
+        </div>
+
+        <!-- Architecture Tab -->
+        <div class="tab-content active">
+            <h2>System Architecture</h2>
+            <div class="diagram-container">
+                <svg width="1000" height="600" viewBox="0 0 1000 600">
+                    <!-- Clients -->
+                    <rect x="50" y="20" width="150" height="60" fill="#f5576c" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="125" y="55" text-anchor="middle" font-size="14" font-weight="bold" fill="white">Web Client</text>
+
+                    <rect x="250" y="20" width="150" height="60" fill="#f5576c" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="325" y="55" text-anchor="middle" font-size="14" font-weight="bold" fill="white">Desktop Client</text>
+
+                    <rect x="450" y="20" width="150" height="60" fill="#f5576c" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="525" y="55" text-anchor="middle" font-size="14" font-weight="bold" fill="white">Mobile Client</text>
+
+                    <rect x="650" y="20" width="150" height="60" fill="#f5576c" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="725" y="55" text-anchor="middle" font-size="14" font-weight="bold" fill="white">Admin Panel</text>
+
+                    <!-- Connecting lines to Nginx -->
+                    <line x1="125" y1="80" x2="250" y2="120" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+                    <line x1="325" y1="80" x2="325" y2="120" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+                    <line x1="525" y1="80" x2="450" y2="120" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+                    <line x1="725" y1="80" x2="550" y2="120" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+
+                    <!-- Nginx -->
+                    <rect x="150" y="120" width="350" height="60" fill="#4facfe" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="325" y="155" text-anchor="middle" font-size="14" font-weight="bold" fill="white">Nginx Reverse Proxy (Port 80/443)</text>
+
+                    <!-- Lines to services -->
+                    <line x1="250" y1="180" x2="150" y2="220" stroke="#999" stroke-width="2"/>
+                    <line x1="325" y1="180" x2="325" y2="220" stroke="#999" stroke-width="2"/>
+                    <line x1="400" y1="180" x2="500" y2="220" stroke="#999" stroke-width="2"/>
+
+                    <!-- Services -->
+                    <rect x="50" y="220" width="160" height="80" fill="#667eea" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="130" y="240" text-anchor="middle" font-size="13" font-weight="bold" fill="white">API Service</text>
+                    <text x="130" y="260" text-anchor="middle" font-size="11" fill="white">FastAPI</text>
+                    <text x="130" y="280" text-anchor="middle" font-size="11" fill="white">:8000</text>
+
+                    <rect x="245" y="220" width="160" height="80" fill="#667eea" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="325" y="240" text-anchor="middle" font-size="13" font-weight="bold" fill="white">WebSocket Service</text>
+                    <text x="325" y="260" text-anchor="middle" font-size="11" fill="white">FastAPI</text>
+                    <text x="325" y="280" text-anchor="middle" font-size="11" fill="white">:8001</text>
+
+                    <rect x="440" y="220" width="160" height="80" fill="#667eea" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="520" y="240" text-anchor="middle" font-size="13" font-weight="bold" fill="white">Search Service</text>
+                    <text x="520" y="260" text-anchor="middle" font-size="11" fill="white">FastAPI</text>
+                    <text x="520" y="280" text-anchor="middle" font-size="11" fill="white">:8002</text>
+
+                    <!-- Data Layer -->
+                    <line x1="130" y1="300" x2="200" y2="360" stroke="#999" stroke-width="2"/>
+                    <line x1="325" y1="300" x2="325" y2="360" stroke="#999" stroke-width="2"/>
+                    <line x1="520" y1="300" x2="600" y2="360" stroke="#999" stroke-width="2"/>
+
+                    <!-- PostgreSQL -->
+                    <rect x="100" y="360" width="160" height="80" fill="#43e97b" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="180" y="380" text-anchor="middle" font-size="13" font-weight="bold" fill="white">PostgreSQL</text>
+                    <text x="180" y="400" text-anchor="middle" font-size="11" fill="white">Database</text>
+                    <text x="180" y="420" text-anchor="middle" font-size="11" fill="white">:5432</text>
+
+                    <!-- Redis -->
+                    <rect x="295" y="360" width="160" height="80" fill="#43e97b" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="375" y="380" text-anchor="middle" font-size="13" font-weight="bold" fill="white">Redis</text>
+                    <text x="375" y="400" text-anchor="middle" font-size="11" fill="white">Cache & Pub/Sub</text>
+                    <text x="375" y="420" text-anchor="middle" font-size="11" fill="white">:6379</text>
+
+                    <!-- Elasticsearch -->
+                    <rect x="490" y="360" width="160" height="80" fill="#43e97b" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="570" y="380" text-anchor="middle" font-size="13" font-weight="bold" fill="white">Elasticsearch</text>
+                    <text x="570" y="400" text-anchor="middle" font-size="11" fill="white">Search Index</text>
+                    <text x="570" y="420" text-anchor="middle" font-size="11" fill="white">:9200</text>
+
+                    <!-- Worker Service -->
+                    <rect x="685" y="360" width="160" height="80" fill="#667eea" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="765" y="380" text-anchor="middle" font-size="13" font-weight="bold" fill="white">Worker Service</text>
+                    <text x="765" y="400" text-anchor="middle" font-size="11" fill="white">Celery</text>
+                    <text x="765" y="420" text-anchor="middle" font-size="11" fill="white">Async Tasks</text>
+
+                    <!-- Monitoring -->
+                    <rect x="100" y="480" width="220" height="80" fill="#dcdcaa" stroke="#333" stroke-width="2" rx="5"/>
+                    <text x="210" y="510" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Monitoring & Observability</text>
+                    <text x="210" y="530" text-anchor="middle" font-size="11" fill="#333">Prometheus • Grafana • Jaeger</text>
+
+                    <!-- Legend -->
+                    <text x="400" y="505" font-size="12" font-weight="bold" fill="#333">Data Flow:</text>
+                    <line x1="490" y1="500" x2="540" y2="500" stroke="#999" stroke-width="2"/>
+                    <text x="550" y="505" font-size="11" fill="#333">HTTP/REST</text>
+
+                    <line x1="490" y1="520" x2="540" y2="520" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+                    <text x="550" y="525" font-size="11" fill="#333">WebSocket</text>
+
+                    <line x1="490" y1="540" x2="540" y2="540" stroke="#999" stroke-width="2"/>
+                    <text x="550" y="545" font-size="11" fill="#333">Database</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- File Structure Tab -->
+        <div class="tab-content">
+            <h2>Project File Structure</h2>
+            <div class="tree">
+<span class="tree-special">real-time-chat-app/</span>
+<span class="tree-comment"> # Root directory</span>
+│
+├── <span class="tree-folder">📂 services/</span>                    <span class="tree-comment"># Backend microservices</span>
+│   ├── <span class="tree-folder">api-service/</span>               <span class="tree-comment"># REST API gateway (8000)</span>
+│   │   ├── <span class="tree-folder">routes/</span>               <span class="tree-comment"># API endpoints</span>
+│   │   ├── <span class="tree-folder">models/</span>               <span class="tree-comment"># SQLAlchemy ORM</span>
+│   │   ├── <span class="tree-file">main.py</span>
+│   │   ├── <span class="tree-file">config.py</span>
+│   │   └── <span class="tree-config">requirements.txt</span>
+│   │
+│   ├── <span class="tree-folder">websocket-service/</span>        <span class="tree-comment"># Real-time WebSocket (8001)</span>
+│   │   ├── <span class="tree-file">message_handler.py</span>
+│   │   ├── <span class="tree-file">main.py</span>
+│   │   └── <span class="tree-config">requirements.txt</span>
+│   │
+│   ├── <span class="tree-folder">search-service/</span>           <span class="tree-comment"># Elasticsearch search (8002)</span>
+│   │   ├── <span class="tree-file">routes.py</span>
+│   │   ├── <span class="tree-file">elasticsearch_client.py</span>
+│   │   └── <span class="tree-config">requirements.txt</span>
+│   │
+│   └── <span class="tree-folder">worker-service/</span>           <span class="tree-comment"># Celery async tasks</span>
+│       ├── <span class="tree-folder">tasks/</span>
+│       ├── <span class="tree-file">celery_beat.py</span>
+│       └── <span class="tree-config">requirements.txt</span>
+│
+├── <span class="tree-folder">📂 frontend/</span>                    <span class="tree-comment"># Client applications</span>
+│   ├── <span class="tree-folder">web/</span>                       <span class="tree-comment"># React web app</span>
+│   │   ├── <span class="tree-folder">src/</span>
+│   │   │   ├── <span class="tree-folder">pages/</span>            <span class="tree-comment"># ChatPage, LoginPage, etc.</span>
+│   │   │   ├── <span class="tree-folder">components/</span>       <span class="tree-comment"># Reusable components</span>
+│   │   │   ├── <span class="tree-folder">store/</span>            <span class="tree-comment"># Redux state</span>
+│   │   │   ├── <span class="tree-file">App.jsx</span>
+│   │   │   └── <span class="tree-file">main.jsx</span>
+│   │   ├── <span class="tree-config">package.json</span>
+│   │   └── <span class="tree-config">vite.config.js</span>
+│   │
+│   ├── <span class="tree-folder">desktop/</span>                   <span class="tree-comment"># Electron app</span>
+│   │   ├── <span class="tree-folder">src/</span>
+│   │   ├── <span class="tree-file">main.js</span>
+│   │   └── <span class="tree-config">package.json</span>
+│   │
+│   └── <span class="tree-folder">mobile/</span>                    <span class="tree-comment"># React Native/Expo</span>
+│       ├── <span class="tree-folder">screens/</span>
+│       ├── <span class="tree-file">App.js</span>
+│       └── <span class="tree-config">app.json</span>
+│
+├── <span class="tree-folder">📂 database/</span>                    <span class="tree-comment"># Database schema</span>
+│   ├── <span class="tree-folder">migrations/</span>
+│   │   └── <span class="tree-folder">versions/</span>            <span class="tree-comment"># Alembic migrations</span>
+│   ├── <span class="tree-file">schema.sql</span>
+│   └── <span class="tree-file">indexes.sql</span>
+│
+├── <span class="tree-folder">📂 monitoring/</span>                  <span class="tree-comment"># Observability</span>
+│   ├── <span class="tree-file">prometheus.yml</span>
+│   ├── <span class="tree-folder">grafana/</span>
+│   └── <span class="tree-folder">jaeger/</span>
+│
+├── <span class="tree-folder">📂 nginx/</span>                       <span class="tree-comment"># Reverse proxy</span>
+│   ├── <span class="tree-file">nginx.conf</span>
+│   └── <span class="tree-folder">ssl/</span>                      <span class="tree-comment"># SSL certificates</span>
+│
+├── <span class="tree-folder">📂 tests/</span>                       <span class="tree-comment"># Test suite</span>
+│   ├── <span class="tree-folder">unit/</span>                    <span class="tree-comment"># Unit tests</span>
+│   ├── <span class="tree-folder">integration/</span>             <span class="tree-comment"># Integration tests</span>
+│   └── <span class="tree-folder">e2e/</span>                     <span class="tree-comment"># End-to-end tests</span>
+│
+├── <span class="tree-folder">📂 .github/</span>                     <span class="tree-comment"># GitHub workflows</span>
+│   └── <span class="tree-folder">workflows/</span>
+│       ├── <span class="tree-file">ci.yml</span>
+│       ├── <span class="tree-file">cd.yml</span>
+│       └── <span class="tree-file">security.yml</span>
+│
+├── <span class="tree-folder">📂 docs/</span>                        <span class="tree-comment"># Documentation</span>
+│   ├── <span class="tree-file">ARCHITECTURE.md</span>
+│   ├── <span class="tree-file">API_REFERENCE.md</span>
+│   ├── <span class="tree-file">DEPLOYMENT.md</span>
+│   └── ...
+│
+├── <span class="tree-config">docker-compose.yml</span>           <span class="tree-comment"># Production compose</span>
+├── <span class="tree-config">docker-compose.dev.yml</span>       <span class="tree-comment"># Dev overrides</span>
+├── <span class="tree-config">.env.example</span>                 <span class="tree-comment"># Environment template</span>
+├── <span class="tree-config">Makefile</span>                     <span class="tree-comment"># Build commands</span>
+└── <span class="tree-file">README.md</span>
+            </div>
+        </div>
+
+        <!-- Microservices Tab -->
+        <div class="tab-content">
+            <h2>Microservices Overview</h2>
+            <div class="microservices">
+                <div class="service-card">
+                    <div class="service-header">
+                        <h4>API Service</h4>
+                        <div class="service-port">FastAPI • Port 8000</div>
+                    </div>
+                    <div class="service-body">
+                        <div class="service-item">Authentication & Auth</div>
+                        <div class="service-item">User Management</div>
+                        <div class="service-item">Room Management</div>
+                        <div class="service-item">Message CRUD</div>
+                        <div class="service-item">File Upload</div>
+                        <div class="service-item">Notifications</div>
+                        <div class="service-item">Relationships</div>
+                    </div>
+                </div>
+
+                <div class="service-card">
+                    <div class="service-header">
+                        <h4>WebSocket Service</h4>
+                        <div class="service-port">FastAPI • Port 8001</div>
+                    </div>
+                    <div class="service-body">
+                        <div class="service-item">Real-time Messaging</div>
+                        <div class="service-item">Typing Indicators</div>
+                        <div class="service-item">Presence Tracking</div>
+                        <div class="service-item">Room Join/Leave</div>
+                        <div class="service-item">Connection Management</div>
+                        <div class="service-item">Redis Pub/Sub</div>
+                    </div>
+                </div>
+
+                <div class="service-card">
+                    <div class="service-header">
+                        <h4>Search Service</h4>
+                        <div class="service-port">FastAPI • Port 8002</div>
+                    </div>
+                    <div class="service-body">
+                        <div class="service-item">Full-Text Search</div>
+                        <div class="service-item">Message Indexing</div>
+                        <div class="service-item">Elasticsearch</div>
+                        <div class="service-item">Query Optimization</div>
+                        <div class="service-item">Index Management</div>
+                    </div>
+                </div>
+
+                <div class="service-card">
+                    <div class="service-header">
+                        <h4>Worker Service</h4>
+                        <div class="service-port">Celery • Async Tasks</div>
+                    </div>
+                    <div class="service-body">
+                        <div class="service-item">Background Jobs</div>
+                        <div class="service-item">Notifications</div>
+                        <div class="service-item">Scheduled Tasks</div>
+                        <div class="service-item">Maintenance</div>
+                        <div class="service-item">Index Updates</div>
+                        <div class="service-item">Cleanup Operations</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tech Stack Tab -->
+        <div class="tab-content">
+            <h2>Technology Stack</h2>
+            <div class="tech-grid">
+                <div class="tech-card">
+                    <h3>Backend Frameworks</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">FastAPI</div>
+                        <div class="tech-desc">Modern async Python web framework</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">SQLAlchemy</div>
+                        <div class="tech-desc">Async ORM for database operations</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Pydantic</div>
+                        <div class="tech-desc">Data validation & serialization</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Databases & Cache</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">PostgreSQL 16</div>
+                        <div class="tech-desc">Primary relational database</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Redis 7</div>
+                        <div class="tech-desc">Caching & pub/sub broker</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Elasticsearch 8</div>
+                        <div class="tech-desc">Full-text search engine</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Frontend Frameworks</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">React 18</div>
+                        <div class="tech-desc">Web UI library</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Redux Toolkit</div>
+                        <div class="tech-desc">State management</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Vite</div>
+                        <div class="tech-desc">Fast build tool</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Desktop & Mobile</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">Electron</div>
+                        <div class="tech-desc">Cross-platform desktop app</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">React Native</div>
+                        <div class="tech-desc">Mobile app framework</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Expo</div>
+                        <div class="tech-desc">React Native toolchain</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Task Queue</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">Celery</div>
+                        <div class="tech-desc">Async task processing</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Celery Beat</div>
+                        <div class="tech-desc">Scheduled task scheduler</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Redis Queue</div>
+                        <div class="tech-desc">Task broker backend</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Infrastructure</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">Docker</div>
+                        <div class="tech-desc">Container platform</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Docker Compose</div>
+                        <div class="tech-desc">Container orchestration</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Nginx</div>
+                        <div class="tech-desc">Reverse proxy & SSL</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>Monitoring</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">Prometheus</div>
+                        <div class="tech-desc">Metrics collection</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Grafana</div>
+                        <div class="tech-desc">Dashboard visualization</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Jaeger</div>
+                        <div class="tech-desc">Distributed tracing</div>
+                    </div>
+                </div>
+
+                <div class="tech-card">
+                    <h3>CI/CD</h3>
+                    <div class="tech-item">
+                        <div class="tech-name">GitHub Actions</div>
+                        <div class="tech-desc">Automated workflows</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Codecov</div>
+                        <div class="tech-desc">Coverage reporting</div>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-name">Docker Hub / GHCR</div>
+                        <div class="tech-desc">Container registry</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Layers Tab -->
+        <div class="tab-content">
+            <h2>Application Layers</h2>
+
+            <div class="layers">
+                <div class="layer client">
+                    <div class="layer-title">🎨 Client Layer (Presentation)</div>
+                    <div class="layer-items">
+                        <div class="layer-item">
+                            <strong>Web (React)</strong>
+                            <small>Modern SPA with Redux, Vite bundler</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Desktop (Electron)</strong>
+                            <small>Cross-platform standalone app</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Mobile (React Native)</strong>
+                            <small>iOS & Android via Expo</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="layer api">
+                    <div class="layer-title">🔧 API Layer (Business Logic)</div>
+                    <div class="layer-items">
+                        <div class="layer-item">
+                            <strong>REST API Service</strong>
+                            <small>CRUD operations, auth, file uploads</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>WebSocket Service</strong>
+                            <small>Real-time messaging, presence tracking</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Search Service</strong>
+                            <small>Full-text search with Elasticsearch</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Worker Service</strong>
+                            <small>Async tasks, scheduled jobs</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="layer data">
+                    <div class="layer-title">💾 Data Layer (Persistence)</div>
+                    <div class="layer-items">
+                        <div class="layer-item">
+                            <strong>PostgreSQL</strong>
+                            <small>Relational data (users, messages, rooms)</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Redis</strong>
+                            <small>Cache, sessions, pub/sub broker</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>Elasticsearch</strong>
+                            <small>Indexed data for fast search</small>
+                        </div>
+                        <div class="layer-item">
+                            <strong>File Storage</strong>
+                            <small>Uploaded files & assets</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Tab -->
+        <div class="tab-content">
+            <h2>Project Statistics</h2>
+
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-number">4</div>
+                    <div class="stat-label">Microservices</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">3</div>
+                    <div class="stat-label">Client Apps</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">9</div>
+                    <div class="stat-label">Components</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">12</div>
+                    <div class="stat-label">Test Files</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">8</div>
+                    <div class="stat-label">API Endpoints</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">5</div>
+                    <div class="stat-label">Migrations</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">11</div>
+                    <div class="stat-label">Documentation</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">3</div>
+                    <div class="stat-label">CI/CD Workflows</div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 40px;">Features Summary</h3>
+            <ul>
+                <li>Real-time messaging with WebSockets</li>
+                <li>Multi-platform support (Web, Desktop, Mobile)</li>
+                <li>JWT-based authentication</li>
+                <li>Full-text search with Elasticsearch</li>
+                <li>Message reactions & attachments</li>
+                <li>Typing indicators & presence tracking</li>
+                <li>Async task processing with Celery</li>
+                <li>File uploads with validation</li>
+                <li>User relationships & discovery</li>
+                <li>Production-grade monitoring</li>
+                <li>Automated CI/CD pipelines</li>
+                <li>Comprehensive test coverage</li>
+            </ul>
+
+            <h3 style="margin-top: 40px;">Deployment Ready</h3>
+            <ul>
+                <li>Docker containerization for all services</li>
+                <li>Docker Compose for orchestration</li>
+                <li>Nginx reverse proxy with SSL/TLS</li>
+                <li>Database migrations with Alembic</li>
+                <li>Environment-based configuration</li>
+                <li>Health checks on all services</li>
+                <li>Prometheus metrics integration</li>
+                <li>Jaeger distributed tracing</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>🚀 Real-Time Chat Application - Production-Grade Microservices Architecture</p>
+        <p style="margin-top: 10px; font-size: 0.9em;">Made with ❤️ by Amin Albooyeh | Built with modern technologies for scalability and performance</p>
+    </div>
+
+    <script>
+        function showTab(index) {
+            const contents = document.querySelectorAll('.tab-content');
+            const buttons = document.querySelectorAll('.tab-button');
+
+            contents.forEach((content, i) => {
+                content.classList.remove('active');
+                if (i === index) {
+                    content.classList.add('active');
+                }
+            });
+
+            buttons.forEach((button, i) => {
+                button.classList.remove('active');
+                if (i === index) {
+                    button.classList.add('active');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
