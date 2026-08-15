@@ -14,8 +14,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourorg/real-time-chat-app.git
-cd real-time-chat-app
+git clone https://github.com/MohammadaminAlbooyeh/real_time_chat_app.git
+cd real_time_chat_app
 
 # Copy environment files
 cp .env.example services/api-service/.env

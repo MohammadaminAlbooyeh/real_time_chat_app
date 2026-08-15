@@ -39,9 +39,9 @@
 
 ## Quick Links
 
-- **Root README:** [`/README.md`](../README.md) - Project overview and quick start
-- **API Docs (root):** [`/API_DOCS.md`](../API_DOCS.md) - Quick API reference
-- **Architecture (root):** [`/ARCHITECTURE.md`](../ARCHITECTURE.md) - Quick architecture overview
+- **Root README:** [`README.md`](../README.md) - Project overview and quick start
+- **API Docs (root):** [`API_DOCS.md`](../API_DOCS.md) - Quick API reference
+- **Architecture (root):** [`ARCHITECTURE.md`](../ARCHITECTURE.md) - Quick architecture overview
 
 ## Service Summary
 

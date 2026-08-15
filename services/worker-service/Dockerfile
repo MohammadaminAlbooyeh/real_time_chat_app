@@ -1,10 +1,17 @@
-FROM python:3.12-slim
-
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pom.xml .
+RUN mvn -B dependency:go-offline
 
-COPY . .
+COPY src ./src
+RUN mvn -B package -DskipTests
 
-CMD ["celery", "-A", "main", "worker", "--loglevel=info"]
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+
+COPY --from=build /app/target/worker-service-1.0.0.jar app.jar
+
+EXPOSE 8003
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

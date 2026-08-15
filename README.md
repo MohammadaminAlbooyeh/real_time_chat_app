@@ -2,9 +2,9 @@
 
 A **production-grade, scalable real-time chat platform** built with microservices architecture. Supports web, desktop (Electron), and mobile (React Native) clients with advanced features like file uploads, full-text search, message reactions, and presence tracking.
 
-[![CI](https://github.com/yourusername/real-time-chat-app/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/real-time-chat-app/actions/workflows/ci.yml)
-[![CD](https://github.com/yourusername/real-time-chat-app/actions/workflows/cd.yml/badge.svg)](https://github.com/yourusername/real-time-chat-app/actions/workflows/cd.yml)
-[![Coverage](https://codecov.io/gh/yourusername/real-time-chat-app/branch/main/graph/badge.svg)](https://codecov.io/gh/yourusername/real-time-chat-app)
+[![CI](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/ci.yml)
+[![CD](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/cd.yml/badge.svg)](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/cd.yml)
+[![Coverage](https://codecov.io/gh/MohammadaminAlbooyeh/real_time_chat_app/branch/master/graph/badge.svg)](https://codecov.io/gh/MohammadaminAlbooyeh/real_time_chat_app)
 
 ---
 
@@ -240,8 +240,8 @@ real-time-chat-app/
 ### 1️⃣ Clone & Setup
 
 ```bash
-git clone https://github.com/yourusername/real-time-chat-app.git
-cd real-time-chat-app
+git clone https://github.com/MohammadaminAlbooyeh/real_time_chat_app.git
+cd real_time_chat_app
 
 # Copy environment files
 cp .env.example .env
@@ -529,14 +529,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Amin Albooyeh**
 - Email: amin.albooyeh@gmail.com
-- GitHub: [@yourusername](https://github.com/yourusername)
+- GitHub: [@MohammadaminAlbooyeh](https://github.com/MohammadaminAlbooyeh)
 
 ---
 
 ## 📞 Support
 
 For issues, questions, or suggestions:
-- **GitHub Issues**: [Open an issue](https://github.com/yourusername/real-time-chat-app/issues)
+- **GitHub Issues**: [Open an issue](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/issues)
 - **Documentation**: Check the [docs](docs/) folder
 - **Email**: amin.albooyeh@gmail.com
 

@@ -1,4 +1,4 @@
-.PHONY: dev build up down logs migrate test clean
+.PHONY: dev build up down logs migrate test test-all shell clean
 
 dev:
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml up
@@ -16,13 +16,24 @@ logs:
 	docker compose logs -f
 
 migrate:
-	docker compose exec api-service alembic upgrade head
+	docker compose exec api-service java -jar app.jar -- migrate
 
-test:
-	docker compose exec api-service pytest
+test-api:
+	cd services/api-service && mvn test
+
+test-search:
+	cd services/search-service && mvn test
+
+test-worker:
+	cd services/worker-service && mvn test
+
+test-ws:
+	cd services/websocket-service && mvn test
+
+test-all: test-api test-search test-worker test-ws
 
 shell:
-	docker compose exec api-service bash
+	docker compose exec api-service sh
 
 clean:
 	docker compose down -v

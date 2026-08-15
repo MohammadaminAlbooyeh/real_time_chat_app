@@ -110,7 +110,7 @@ docker compose logs websocket-service
 ```javascript
 function connectWebSocket() {
     const ws = new WebSocket(`ws://${host}/ws?token=${token}`);
-    
+
     ws.onclose = (event) => {
         if (event.code === 4001) {
             // Token issue - need to re-authenticate
@@ -120,7 +120,7 @@ function connectWebSocket() {
             setTimeout(connectWebSocket, 1000);
         }
     };
-    
+
     ws.onerror = () => ws.close();
 }
 ```

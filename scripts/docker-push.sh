@@ -7,7 +7,7 @@ echo "Pushing images to $REGISTRY..."
 SERVICES=("api-service" "websocket-service" "worker-service" "search-service" "nginx")
 for service in "${SERVICES[@]}"; do
     echo "Tagging and pushing $service..."
-    docker tag "real_time_chat_application-$service:latest" "$REGISTRY/$service:latest"
+    docker tag "real_time_chat_app-$service:latest" "$REGISTRY/$service:latest"
     docker push "$REGISTRY/$service:latest"
 done
 

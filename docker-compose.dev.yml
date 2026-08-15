@@ -6,37 +6,49 @@ services:
       context: ./services/api-service
       dockerfile: Dockerfile.dev
     volumes:
-      - ./services/api-service:/app
+      - ./services/api-service/src:/app/src
+      - ./services/api-service/pom.xml:/app/pom.xml
     ports:
       - "8000:8000"
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - LOG_LEVEL=DEBUG
 
   websocket-service:
     build:
       context: ./services/websocket-service
       dockerfile: Dockerfile.dev
     volumes:
-      - ./services/websocket-service:/app
+      - ./services/websocket-service/src:/app/src
+      - ./services/websocket-service/pom.xml:/app/pom.xml
     ports:
       - "8001:8001"
-    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - LOG_LEVEL=DEBUG
 
   worker-service:
     build:
       context: ./services/worker-service
       dockerfile: Dockerfile.dev
     volumes:
-      - ./services/worker-service:/app
+      - ./services/worker-service/src:/app/src
+      - ./services/worker-service/pom.xml:/app/pom.xml
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
 
   search-service:
     build:
       context: ./services/search-service
       dockerfile: Dockerfile.dev
     volumes:
-      - ./services/search-service:/app
+      - ./services/search-service/src:/app/src
+      - ./services/search-service/pom.xml:/app/pom.xml
     ports:
       - "8002:8002"
-    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - LOG_LEVEL=DEBUG
 
   frontend-web:
     build:

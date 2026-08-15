@@ -459,7 +459,7 @@ API Service → PostgreSQL (write)
 ```
 Client connects → WebSocket Service → Mark online in Redis
                                      → Broadcast presence:online
-                                     
+
 Client disconnects → WebSocket Service → Mark offline in Redis
                                        → Broadcast presence:offline
 ```

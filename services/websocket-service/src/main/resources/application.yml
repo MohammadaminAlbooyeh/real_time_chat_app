@@ -16,7 +16,7 @@ spring:
 app:
   version: ${APP_VERSION:1.0.0}
   jwt:
-    secret-key: ${JWT_SECRET_KEY:change-this-to-a-secure-random-secret}
+    secret-key: ${JWT_SECRET_KEY:change-me-development-only-secret-key-32chars}
     algorithm: ${JWT_ALGORITHM:HS256}
 
 logging:

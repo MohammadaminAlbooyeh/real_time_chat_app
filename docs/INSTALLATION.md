@@ -17,8 +17,8 @@ The fastest way to get the entire application running is with Docker Compose:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourorg/real-time-chat-app.git
-cd real-time-chat-app
+git clone https://github.com/MohammadaminAlbooyeh/real_time_chat_app.git
+cd real_time_chat_app
 
 # 2. Copy environment files
 cp .env.example services/api-service/.env

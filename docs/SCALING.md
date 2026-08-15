@@ -303,7 +303,7 @@ CACHEABLE ENDPOINTS:
   GET /rooms                 - Medium TTL (30s)
   GET /rooms/{id}/members    - Medium TTL (60s)
   GET /search/messages       - Short TTL (15s)
-  
+
 NOT CACHEABLE (real-time data):
   GET /rooms/{id}/messages   - Real-time, not cached
   WebSocket events           - Real-time, not cached

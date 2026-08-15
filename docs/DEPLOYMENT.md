@@ -17,8 +17,8 @@ The application is deployed using Docker Compose with production-optimized setti
 ### 1. Clone and Prepare
 
 ```bash
-git clone https://github.com/yourorg/real-time-chat-app.git
-cd real-time-chat-app
+git clone https://github.com/MohammadaminAlbooyeh/real_time_chat_app.git
+cd real_time_chat_app
 ```
 
 ### 2. Configure Environment Variables
