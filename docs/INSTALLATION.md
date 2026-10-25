@@ -4,7 +4,8 @@
 
 Ensure the following are installed on your system:
 
-- **Python** 3.12+ (`python3 --version`)
+- **Java** 21 (`java --version`) — all four backend services are Spring Boot apps on Java 21
+- **Maven** 3.9+ (`mvn --version`) — or just use the Maven Wrapper if a service ships one
 - **Node.js** 20+ (`node --version`)
 - **npm** 10+ (`npm --version`)
 - **Docker** 24+ (`docker --version`)
@@ -13,7 +14,7 @@ Ensure the following are installed on your system:
 
 ## Quick Start
 
-The fastest way to get the entire application running is with Docker Compose:
+The fastest way to get the entire application running is with Docker Compose — it builds all four Java services, starts Postgres/Redis/Elasticsearch, and loads the schema automatically:
 
 ```bash
 # 1. Clone the repository
@@ -26,22 +27,20 @@ cp .env.example services/websocket-service/.env
 cp .env.example services/worker-service/.env
 cp .env.example services/search-service/.env
 
-# 3. Start all services (development mode with hot reload)
+# 3. Start all services (development mode, hot-reload via mounted sources)
 make dev
-
-# 4. In another terminal, run database migrations
-make migrate
-
-# 5. Seed demo data (if available)
-make seed
 ```
+
+There is **no `make migrate` or `make seed` step** — the Postgres container loads `database/schema.sql` and `database/indexes.sql` automatically on first startup (see "Database Setup" below), and there is no seed data script wired into the Makefile.
 
 The application will be available at:
 - **Web App:** http://localhost:3000
 - **API:** http://localhost:8000
-- **API Docs (Swagger):** http://localhost:8000/docs
-- **API Docs (ReDoc):** http://localhost:8000/redoc
 - **WebSocket:** ws://localhost:8001/ws
+- **Search Service:** http://localhost:8002
+- **Nginx (reverse proxy for API + WS):** http://localhost (80) / https://localhost (443, self-signed cert)
+
+There is no Swagger/OpenAPI UI wired into api-service — see `docs/API_REFERENCE.md` for the documented endpoints instead.
 
 ## Manual Setup (Without Docker)
 
@@ -61,21 +60,19 @@ sudo systemctl start postgresql
 sudo systemctl start redis
 ```
 
-Create the database:
+Create the database and load the schema by hand (there is no migration tool — see "Schema Changes" below):
 
 ```bash
 psql -U postgres -c "CREATE DATABASE chat_db;"
+psql -U postgres -d chat_db -f database/schema.sql
+psql -U postgres -d chat_db -f database/indexes.sql
 ```
 
 ### 2. Elasticsearch Setup (Optional)
 
-Required for full-text search functionality.
+Required for `search-service`'s full-text search.
 
 ```bash
-# macOS
-brew install elasticsearch
-brew services start elasticsearch
-
 # Docker (easiest)
 docker run -d --name elasticsearch \
   -p 9200:9200 -p 9300:9300 \
@@ -86,127 +83,108 @@ docker run -d --name elasticsearch \
 
 ### 3. Backend Services Setup
 
-Each backend service has its own Python virtual environment.
+Each backend service is an independent Maven project (Java 21, Spring Boot 3.5). Build each one from its own directory:
 
-**API Service:**
 ```bash
 cd services/api-service
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Edit .env if needed (DATABASE_URL, REDIS_URL, etc.)
-# If using Docker for DB, keep defaults
+mvn clean install
 ```
 
-**WebSocket Service:**
 ```bash
 cd services/websocket-service
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+mvn clean install
 ```
 
-**Worker Service:**
 ```bash
 cd services/worker-service
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+mvn clean install
 ```
 
-**Search Service:**
 ```bash
 cd services/search-service
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+mvn clean install
 ```
+
+Each `mvn clean install` compiles the service, runs its JUnit test suite, and produces an executable jar under `target/`.
 
 ### 4. Frontend Setup
 
-**Web Frontend:**
+**Web Frontend (React + Vite + Redux Toolkit):**
 ```bash
 cd frontend/web
 npm install
 ```
 
-**Desktop (Electron):**
+**Desktop (Electron + Vite, same React codebase shell):**
 ```bash
 cd frontend/desktop
 npm install
 ```
 
-**Mobile (React Native):**
+**Mobile (React Native via Expo):**
 ```bash
 cd frontend/mobile
 npm install
 ```
 
-### 5. Database Migrations
+### 5. Schema Changes
 
-```bash
-cd services/api-service
-source venv/bin/activate
-alembic upgrade head
-```
+There is no Alembic/Flyway/Liquibase migration framework in this project. The schema is a plain pair of SQL files:
+
+- `database/schema.sql` — tables
+- `database/indexes.sql` — indexes
+
+In Docker, these are mounted into the Postgres container as `docker-entrypoint-initdb.d/01-schema.sql` and `02-indexes.sql` and only run automatically **the first time** the `postgres_data` volume is created (empty). If you change these files after the volume already exists, Postgres will not re-run them — either apply the SQL by hand against the running database, or drop the volume (`docker compose down -v`, dev environments only) to let it re-initialize from scratch. The Makefile's `migrate` target (`docker compose exec api-service java -jar app.jar -- migrate`) is a leftover from the old Python/Alembic setup and does nothing — the Spring Boot jars have no such subcommand. Each service's JPA layer is configured with `ddl-auto: validate`, meaning Hibernate checks the schema matches the entities but never auto-generates or alters tables.
 
 ### 6. Run Services
 
-Open separate terminals for each service:
+Open separate terminals for each service and run the Spring Boot app directly from the built jar (or `mvn spring-boot:run` for hot classpath use):
 
 **Terminal 1 - API Service:**
 ```bash
 cd services/api-service
-source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+mvn spring-boot:run
+# or: java -jar target/api-service-1.0.0.jar
 ```
 
 **Terminal 2 - WebSocket Service:**
 ```bash
 cd services/websocket-service
-source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+mvn spring-boot:run
 ```
 
 **Terminal 3 - Search Service:**
 ```bash
 cd services/search-service
-source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+mvn spring-boot:run
 ```
 
 **Terminal 4 - Worker Service:**
 ```bash
 cd services/worker-service
-source venv/bin/activate
-celery -A main.celery_app worker --loglevel=info
+mvn spring-boot:run
 ```
 
-**Terminal 5 - Celery Beat (scheduled tasks):**
-```bash
-cd services/worker-service
-source venv/bin/activate
-celery -A main.celery_app beat --loglevel=info
-```
+The worker service has no separate "beat" process — scheduled maintenance jobs (session cleanup, message archiving, stale-presence sweep, inactive-user cleanup, abandoned-room cleanup) run in-process via Spring's `@Scheduled` annotations in `ScheduledTasks.java`; there is no Celery broker/worker/beat split.
 
-**Terminal 6 - Frontend:**
+**Terminal 5 - Frontend:**
 ```bash
 cd frontend/web
 npm run dev
 ```
 
-## Environment Files
+## Environment Variables
 
-### `.env.example` (base template)
+The real configuration keys (see each service's `src/main/resources/application.yml`) are:
 
 ```bash
-APP_NAME=Real-Time Chat API
+APP_NAME=Real-Time Chat
 APP_VERSION=1.0.0
-DEBUG=true
+PORT=8000                      # 8000 api, 8001 websocket, 8002 search, 8003 worker
 
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/chat_db
-DATABASE_URL_SYNC=postgresql+psycopg2://postgres:postgres@localhost:5432/chat_db
+DATABASE_URL=jdbc:postgresql://localhost:5432/chat_db
+DATABASE_USERNAME=postgres
+DATABASE_PASSWORD=postgres
 
 REDIS_URL=redis://localhost:6379/0
 
@@ -215,8 +193,13 @@ JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 
-ALLOWED_ORIGINS=["http://localhost:3000","http://localhost:5173"]
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+
+ELASTICSEARCH_URL=http://localhost:9200      # search-service
+SEARCH_SERVICE_URL=http://search-service:8002 # worker-service, to call search-service
 ```
+
+> Note: `services/api-service/.env` in this repo still contains stale Python-era keys (`DATABASE_URL=postgresql+asyncpg://...`, `DATABASE_URL_SYNC=...`) left over from before the Java migration. These are **not** read by Spring Boot — ignore them and use the JDBC-style `DATABASE_URL` shown above, matching `application.yml`.
 
 Copy to each service directory:
 ```bash
@@ -227,19 +210,19 @@ for dir in services/*/; do cp .env.example "$dir.env"; done
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Start all services with hot reload |
+| `make dev` | Start all services with `docker-compose.dev.yml` overrides (mounted source, hot rebuild) |
 | `make build` | Build Docker images |
 | `make up` | Start services in detached mode |
 | `make down` | Stop all services |
 | `make logs` | Follow service logs |
-| `make migrate` | Run database migrations |
-| `make test` | Run tests |
-| `make shell` | Open bash in API service container |
-| `make clean` | Remove containers and volumes |
+| `make test-api` / `test-search` / `test-worker` / `test-ws` | Run one service's `mvn test` |
+| `make test-all` | Run `mvn test` for all four services |
+| `make shell` | Open a shell in the api-service container |
+| `make clean` | `docker compose down -v` + `docker system prune -f` |
+
+(The Makefile also defines a `migrate` target; as noted above it is non-functional and should be ignored.)
 
 ## Verify Installation
-
-Run the following checks to confirm everything is working:
 
 ```bash
 # 1. API health check
@@ -254,7 +237,7 @@ curl http://localhost:8000/health/db
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"testuser","email":"test@example.com","password":"testpass123"}'
-# Expected: TokenResponse with user data
+# Expected: TokenResponse with access/refresh tokens
 
 # 4. Search service (if Elasticsearch is running)
 curl http://localhost:8002/api/v1/search/health
@@ -269,7 +252,7 @@ open http://localhost:3000
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
 
 **Quick fixes:**
-- Port conflicts: Stop other services on ports 8000-8002, 5432, 6379, 9200
+- Port conflicts: Stop other services on ports 8000-8003, 5432, 6379, 9200
 - Docker permission denied: Add user to `docker` group: `sudo usermod -aG docker $USER`
-- Database connection refused: Ensure PostgreSQL is running and the DATABASE_URL is correct
-- Redis connection error: Ensure Redis is running and REDIS_URL is correct
+- Database connection refused: Ensure PostgreSQL is running and `DATABASE_URL` is a JDBC URL (`jdbc:postgresql://...`)
+- Redis connection error: Ensure Redis is running and `REDIS_URL` is correct

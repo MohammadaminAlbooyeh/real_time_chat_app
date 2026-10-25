@@ -1,421 +1,287 @@
 # Troubleshooting Guide
 
-## Database Connection Issues
+## Build / Startup Issues
 
-### "psql: could not connect to server: Connection refused"
-
-**Causes:**
-- PostgreSQL service is not running
-- Wrong host/port in connection string
-- Docker container not started
-
-**Solutions:**
+### `mvn package` fails or hangs
 
 ```bash
-# Check if PostgreSQL is running locally
-pg_isready -U postgres
+# Build one service directly to see the real error
+cd services/api-service
+mvn clean package -DskipTests
 
-# If using Docker, check container status
-docker compose ps postgres
-
-# Start PostgreSQL if needed
-brew services start postgresql@16  # macOS
-sudo systemctl start postgresql    # Linux
-docker compose up -d postgres      # Docker
-
-# Verify connection string in .env
-# DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/chat_db
+# Common causes:
+# - No internet access for the first `mvn dependency:go-offline` (Docker build step)
+# - Wrong Java version — this project targets Java 21 (check `java -version`)
+# - Stale ~/.m2 cache after a pom.xml change: `mvn clean install -U`
 ```
+
+### Service container exits immediately after `docker compose up`
+
+```bash
+docker compose logs <service-name>
+
+# Common causes:
+# - Missing or misconfigured .env file for that service
+#   (services/api-service/.env, services/websocket-service/.env, services/worker-service/.env, services/search-service/.env)
+# - Spring Boot failed to start because it couldn't reach Postgres/Redis/Elasticsearch
+#   (check depends_on / healthcheck ordering in docker-compose.yml)
+# - A Bean Validation / @ConfigurationProperties binding error at startup — read the
+#   full Spring Boot stack trace, it names the exact property that failed to bind
+```
+
+### "Port is already allocated"
+
+```bash
+lsof -i :8000   # macOS/Linux (api-service)
+lsof -i :8001   # websocket-service
+lsof -i :8002   # search-service
+lsof -i :8003   # worker-service
+netstat -ano | findstr :8000  # Windows
+
+# Stop the conflicting process or change the port mapping in docker-compose.yml
+```
+
+## Database Connection Issues
+
+### "Connection refused" connecting to PostgreSQL
+
+```bash
+docker compose ps postgres
+docker compose exec postgres pg_isready -U postgres
+
+# Start it if needed
+docker compose up -d postgres
+
+# Verify DATABASE_URL in each service's .env, e.g.:
+# DATABASE_URL=jdbc:postgresql://postgres:5432/chat_db
+```
+Note the JDBC URL scheme (`jdbc:postgresql://...`) — this is a Java/Hibernate connection string, not the old `postgresql+asyncpg://` SQLAlchemy form.
 
 ### "FATAL: database 'chat_db' does not exist"
 
 ```bash
-# Create the database
-psql -U postgres -c "CREATE DATABASE chat_db;"
-
-# Or via Docker
 docker compose exec postgres psql -U postgres -c "CREATE DATABASE chat_db;"
 ```
 
-### "FATAL: password authentication failed"
+### Schema is missing tables / "relation does not exist"
+
+Schema is applied **once**, on first container start, via `docker-entrypoint-initdb.d`:
+
+```yaml
+# docker-compose.yml, postgres service
+volumes:
+  - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+  - ./database/indexes.sql:/docker-entrypoint-initdb.d/02-indexes.sql
+  - ./database/seeds:/docker-entrypoint-initdb.d/seeds
+```
+
+PostgreSQL's entrypoint only runs these scripts when the data directory is empty. If you change `database/schema.sql` later, it will **not** be re-applied to an existing volume. To pick up schema changes:
 
 ```bash
-# Verify credentials in .env match PostgreSQL configuration
-# Default: postgres / postgres
-
-# Reset password if needed
-psql -U postgres -c "ALTER USER postgres PASSWORD 'postgres';"
-
-# Check pg_hba.conf for authentication method
-# For local dev, use: local all all trust
+docker compose down -v        # drops the postgres_data volume — destroys all data
+docker compose up -d postgres # re-runs the initdb scripts against a fresh volume
 ```
 
-### "SSL connection required" error
+**There is no migration tool wired into this project** (no Flyway, no Liquibase). `services/api-service` sets `spring.jpa.hibernate.ddl-auto: validate`, meaning Hibernate will refuse to start if the schema doesn't match the JPA entities — it will never auto-generate or alter the schema for you. Any schema change must be made by hand in `database/schema.sql`/`database/indexes.sql` and re-applied via the volume-reset process above (or manually with `psql`/a migration tool you add yourself).
 
-If PostgreSQL is configured to require SSL but the app doesn't use it:
-
-```python
-# Add ?sslmode=disable to connection string
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db?sslmode=disable
-```
+`scripts/migrate.sh` and the Makefile's `migrate` target are **stale leftovers from the Python/Alembic era and do not work** — `scripts/migrate.sh` still shells out to `alembic`, which no longer exists anywhere in this codebase, and `make migrate` runs `docker compose exec api-service java -jar app.jar -- migrate`, an argument the Spring Boot jar does not understand. Don't use either; use the volume-reset approach above.
 
 ### Connection Pool Exhaustion
 
-**Symptoms:** Slow queries, "too many clients" errors, timeouts.
+**Symptoms:** slow queries, "too many clients", timeouts.
 
-**Solutions:**
 ```bash
-# Check current connections
 docker compose exec postgres psql -U postgres -c "SELECT count(*) FROM pg_stat_activity;"
-
-# Check max connections
 docker compose exec postgres psql -U postgres -c "SHOW max_connections;"
-
-# Reduce pool size in database.py (for each API instance)
-engine = create_async_engine(
-    settings.database_url,
-    pool_size=10,  # Reduced from default
-    max_overflow=5,
-)
 ```
 
-## WebSocket Disconnections
+Each JPA-backed service (`api-service`, `websocket-service`, `worker-service`) uses HikariCP by default. If you're running multiple replicas of a service, explicitly cap `spring.datasource.hikari.maximum-pool-size` per instance so the total across all instances stays under Postgres's `max_connections`.
+
+## WebSocket Issues
 
 ### "WebSocket closed with code 4001"
 
-**Causes:**
-- Missing or invalid JWT token
-- Expired access token
+**Causes (from `ChatWebSocketHandler.java`):**
+- No `token` query parameter on the `/ws` connection
+- Token invalid, expired, or not an access-type token
+- `JWT_SECRET_KEY` differs between `api-service` (which issued the token) and `websocket-service` (which verifies it) — **this is the most common cause after a config change**; the two services each read their own `.env`, and they must match exactly
 
-**Solutions:**
-```python
-# Verify the token is passed as a query parameter
-# ws://host:8001/ws?token=<valid_access_token>
+```bash
+# Connect with a valid access token as a query param
+# ws://host:8001/ws?token=<access_token>
 
-# Tokens expire after 30 minutes - refresh before connecting
-# Check WebSocket service logs
 docker compose logs websocket-service
 ```
 
-### Frequent WebSocket Disconnections
+### Frequent WebSocket disconnections
 
-**Causes:**
-- Network instability
-- Load balancer timeout
-- Server restarting
+**Causes:** network instability, reverse-proxy idle timeout, server restart.
 
-**Solutions:**
-
-**Client-side reconnection (recommended):**
+**Client-side reconnection:**
 ```javascript
-function connectWebSocket() {
+function connectWebSocket(token) {
     const ws = new WebSocket(`ws://${host}/ws?token=${token}`);
-
     ws.onclose = (event) => {
         if (event.code === 4001) {
-            // Token issue - need to re-authenticate
-            refreshToken().then(() => connectWebSocket());
+            refreshToken().then((newToken) => connectWebSocket(newToken));
         } else {
-            // Transient error - reconnect with backoff
-            setTimeout(connectWebSocket, 1000);
+            setTimeout(() => connectWebSocket(token), 1000);
         }
     };
-
-    ws.onerror = () => ws.close();
 }
 ```
 
 **Server-side checks:**
 ```bash
-# Check WebSocket service logs for errors
 docker compose logs websocket-service
 
-# Verify Redis pub/sub is working
-docker compose exec redis redis-cli PUBLISH test "hello"
-docker compose logs websocket-service  # Should see forwarded message
+# Confirm Redis pub/sub fan-out is working
+docker compose exec redis redis-cli PUBLISH "room:test-room-id" '{"type":"test"}'
+docker compose logs websocket-service   # RoomEventSubscriber should log/forward it
 
-# Increase Nginx proxy timeout (nginx/nginx.conf)
-proxy_read_timeout 86400;  # 24 hours
+# If fronting with Nginx, raise the proxied read timeout for long-lived connections
+# (nginx/nginx.conf)
+proxy_read_timeout 86400;
 ```
 
-### "Unknown event type" Error
+### "Unknown event type" error
 
-**Cause:** Client sent an event type that the server doesn't recognize.
+The client sent a `type` the server doesn't recognize. `ChatWebSocketHandler`/`MessageHandler` only understand:
+`message:send`, `typing:start`, `typing:stop`, `room:join`, `room:leave`. Anything else gets echoed back as an `error` event (see WEBSOCKET_EVENTS.md).
 
-**Solution:** Check the client is sending valid event types:
-- `message:send`, `typing:start`, `typing:stop`, `room:join`, `room:leave`
-
-## Redis Connection Errors
+## Redis Issues
 
 ### "Connection refused" to Redis
 
 ```bash
-# Check Redis is running
 docker compose ps redis
-redis-cli ping  # Should return PONG
-
-# Start Redis if needed
+docker compose exec redis redis-cli ping   # should return PONG
 docker compose up -d redis
 ```
 
-### "MOVED" redirection errors (Redis Cluster)
-
-If using Redis Cluster mode but connecting to a single node:
-
-```python
-# Use RedisCluster client instead of Redis
-from redis.cluster import RedisCluster
-redis = RedisCluster.from_url(settings.redis_url)
-```
-
-### Redis Pub/Sub Not Working
-
-**Symptoms:** Messages sent via API not appearing in WebSocket.
-
-**Debugging:**
-```bash
-# Test Redis pub/sub manually
-# Terminal 1: Subscribe
-docker compose exec redis redis-cli SUBSCRIBE "room:*"
-
-# Terminal 2: Publish
-docker compose exec redis redis-cli PUBLISH "room:test-room-id" '{"type":"test"}'
-
-# Check WebSocket service is subscribed
-docker compose logs websocket-service | grep "psubscribe"
-
-# Verify channel pattern matching
-# WebSocket uses: psubscribe("room:*")
-# API publishes to: f"room:{room_id}"
-```
-
-### Redis Memory Full
+### Events published by api-service never reach WebSocket clients
 
 ```bash
-# Check memory usage
+# Verify the channel names match on both ends:
+# - api-service's RedisPublisherService publishes to "room:{roomId}"
+# - websocket-service's RoomEventSubscriber subscribes to the pattern "room:*"
+
+docker compose exec redis redis-cli SUBSCRIBE "room:*"      # terminal 1
+docker compose exec redis redis-cli PUBLISH "room:<id>" '{"type":"test"}'  # terminal 2
+```
+
+### Redis memory full
+
+```bash
 docker compose exec redis redis-cli INFO memory
-
-# Set maxmemory policy (default is noeviction - change to allkeys-lru)
 docker compose exec redis redis-cli CONFIG SET maxmemory-policy allkeys-lru
-
-# Persist to config file if using custom redis.conf
 ```
 
 ## Docker Issues
 
-### "Port is already allocated"
-
-```bash
-# Find what's using the port
-lsof -i :8000   # macOS/Linux
-netstat -ano | findstr :8000  # Windows
-
-# Stop the conflicting service or change the port mapping
-```
-
 ### "No such service" error
 
 ```bash
-# Ensure docker-compose.yml is in the current directory
 ls docker-compose.yml
-
-# Rebuild if services were added
 docker compose build
-```
-
-### Container exits immediately
-
-```bash
-# Check container logs
-docker compose logs <service-name>
-
-# Common causes:
-# - Missing .env file
-# - Wrong working directory
-# - Import error in Python code
-# - Database connection failure at startup
 ```
 
 ### Volumes not mounting correctly
 
 ```bash
-# Verify volume paths exist
-ls -la ./services/api-service  # Should exist and have code
-
-# Check Docker Desktop file sharing settings (macOS/Windows)
-# Ensure the project directory is shared
+ls -la ./services/api-service   # should exist and have code
+# Check Docker Desktop file-sharing settings (macOS/Windows) include the project dir
 ```
 
 ### "Cannot connect to the Docker daemon"
 
 ```bash
-# Start Docker Desktop (macOS)
-open -a Docker
-
-# Start Docker service (Linux)
-sudo systemctl start docker
-
-# Add user to docker group (Linux)
-sudo usermod -aG docker $USER
-# Log out and back in
+open -a Docker              # macOS
+sudo systemctl start docker # Linux
+sudo usermod -aG docker $USER && newgrp docker
 ```
 
 ## Permission Problems
 
-### "Permission denied" when accessing files
+### "Permission denied" accessing uploaded files
 
 ```bash
-# Check file permissions
 ls -la services/api-service/uploads
-
-# Fix permissions
 chmod 755 services/api-service/uploads
 chown -R $USER:$USER services/api-service/uploads
 ```
 
-### Cannot execute docker commands without sudo
+### SSL certificate permission issues
 
 ```bash
-# Add user to docker group (Linux)
-sudo usermod -aG docker $USER
-newgrp docker  # Apply without logout
-```
-
-### SSL Certificate Permission Issues
-
-```bash
-# SSL key must have restricted permissions
 chmod 600 nginx/ssl/key.pem
 chmod 644 nginx/ssl/cert.pem
 ```
 
 ## Application Errors
 
-### "Maximum rooms limit reached"
-
-**Cause:** User has reached the 100-room limit.
-
-**Solution:** Leave unused rooms or increase `max_rooms_per_user` in config.
-
-### "Email or username already taken"
-
-**Cause:** Duplicate registration attempt.
-
-**Solution:** Use a different email/username or log in if you already have an account.
-
 ### "Invalid or expired token"
 
 **Causes:**
-- Token has expired (30 min lifetime)
-- Wrong token type (used refresh token instead of access token)
-- Token signed with different secret
+- Token expired (default 30 min access token lifetime)
+- A refresh token was sent to an endpoint expecting an access token, or vice versa
+- `JWT_SECRET_KEY` changed since the token was issued, or differs between `api-service` and `websocket-service`
 
-**Solutions:**
-```python
-# Refresh the token
-POST /api/v1/auth/refresh
-Body: {"refresh_token": "<your_refresh_token>"}
-
-# Ensure using access_token (not refresh_token) for API calls
-# Check JWT_SECRET_KEY hasn't changed between token issuance and verification
-```
-
-### File Upload Failures
-
-**Causes:**
-- File type not in allowed list
-- File exceeds 50 MB limit
-- User is not a member of the target room
-
-**Solutions:**
-```python
-# Check allowed types in upload.py
-ALLOWED_CONTENT_TYPES = {
-    "image/jpeg", "image/png", "image/gif", "image/webp",
-    "application/pdf", "text/plain",
-    "application/zip", "application/x-rar-compressed",
-    "application/x-7z-compressed", "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-}
-
-# Verify room membership
-# Check file size: must be < 50 MB (52428800 bytes)
-```
-
-### Search Not Returning Results
-
-**Causes:**
-- Elasticsearch not running
-- Messages not indexed yet (async indexing)
-- Query too specific
-
-**Debugging:**
 ```bash
-# Check Elasticsearch is running
+# Get a new access token
+curl -X POST http://localhost:8000/api/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "<your_refresh_token>"}'
+```
+
+### File upload failures
+
+**Causes (verified against `UploadController.java`):**
+- `Content-Type` not in the allowlist (`image/jpeg`, `image/png`, `image/gif`, `image/webp`, `application/pdf`, `text/plain`, `application/zip`, `application/x-rar-compressed`, `application/x-7z-compressed`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`) → `400`
+- File exceeds 50 MB (`52428800` bytes) → `400`
+- Caller is not a member of the target room → `403`
+- `messageId` supplied but that message doesn't belong to the room → `404`
+
+### Search not returning results
+
+**Causes:**
+- Elasticsearch isn't running or isn't healthy
+- The message hasn't been indexed yet (indexing to `search-service` happens out of the synchronous request path)
+- Query too narrow
+
+```bash
 curl http://localhost:9200
-
-# Check index exists
 curl http://localhost:9200/messages
-
-# Search directly in Elasticsearch
 curl -X GET "localhost:9200/messages/_search" -H 'Content-Type: application/json' -d'
-{
-  "query": {"match": {"content": "test"}}
-}'
+{"query": {"match": {"content": "test"}}}'
 
-# Verify worker is processing indexing tasks
-docker compose logs worker-service | grep index
+docker compose logs worker-service | grep -i index
+docker compose logs search-service
 ```
 
 ## Environment Specific
 
-### Development: Hot Reload Not Working
+### Development: hot reload not working
 
 ```bash
-# Ensure running with docker-compose.dev.yml
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-
-# Check volume mounts are correct
-# The dev compose mounts local source into containers
+# Confirm docker-compose.dev.yml actually mounts source/volumes for your workflow —
+# a plain `java -jar app.jar` container does not hot-reload Java changes the way
+# a Python dev server would; you need either Spring Boot DevTools wired in, or to
+# rebuild/restart the container after a code change.
 ```
 
-### Production: Services Can't Communicate
+### Production: services can't communicate
 
 ```bash
-# Verify all services are on the same network
 docker compose ps
-
-# Check network exists
 docker network ls | grep chat-network
-
-# Test connectivity between services
 docker compose exec api-service ping websocket-service
-```
-
-### Migration Errors
-
-```bash
-# Check current migration state
-docker compose exec api-service alembic current
-
-# View migration history
-docker compose exec api-service alembic history
-
-# If migration fails, check for:
-# - Schema conflicts (table already exists)
-# - Data type mismatches
-# - Foreign key constraint violations
-
-# Rollback if needed
-docker compose exec api-service alembic downgrade -1
 ```
 
 ## Getting Additional Help
 
 - Check service logs: `docker compose logs -f <service-name>`
-- Enable debug mode: Set `DEBUG=true` in `.env`
-- Check monitoring dashboards (see MONITORING.md)
-- Open a GitHub issue with:
-  - Steps to reproduce
-  - Relevant logs
-  - Environment details (OS, Docker version, etc.)
+- Raise log verbosity: set `LOG_LEVEL=DEBUG` in the relevant service's `.env`
+- Check monitoring dashboards (see MONITORING.md — note the real instrumentation gaps described there before assuming Grafana/Prometheus data exists)
+- Open a GitHub issue with: steps to reproduce, relevant logs, environment details (OS, Docker version, Java version)

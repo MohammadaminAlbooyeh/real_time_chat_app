@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The Real-Time Chat Application follows a microservices architecture with four distinct backend services, a shared code library, multiple frontend clients, and a comprehensive monitoring stack. The design emphasizes separation of concerns, horizontal scalability, and real-time communication.
+The Real-Time Chat Application follows a microservices architecture with four independent Java/Spring Boot backend services, three frontend clients, and a monitoring stack. The design emphasizes separation of concerns, horizontal scalability, and real-time communication.
 
 ```
                                     ┌─────────────┐
@@ -19,231 +19,210 @@ The Real-Time Chat Application follows a microservices architecture with four di
                                     └──────┬──────┘
                                            │
                         ┌──────────────────┼──────────────────┐
-                        │                  │                  │
-                  ┌─────▼─────┐    ┌──────▼──────┐    ┌─────▼──────┐
-                  │   API      │    │  WebSocket   │    │  Frontend  │
-                  │  Service   │    │  Service     │    │   Web      │
-                  │  :8000     │    │  :8001       │    │  :3000     │
-                  │  (FastAPI) │    │  (FastAPI)   │    │  (React)   │
-                  └─────┬─────┘    └──────┬──────┘    └────────────┘
-                        │                  │
+                        │                                     │
+                  ┌─────▼─────┐                        ┌──────▼──────┐
+                  │   API      │                        │  WebSocket   │
+                  │  Service   │                        │  Service     │
+                  │  :8000     │                        │  :8001       │
+                  │ (Spring    │                        │ (Spring Boot,│
+                  │  Boot)     │                        │  WebSocket)  │
+                  └─────┬─────┘                        └──────┬──────┘
+                        │                                     │
                   ┌─────▼──────────────────▼──────┐
                   │           Redis                │
                   │   :6379 - Pub/Sub & Cache      │
-                  │   :6379/1 - Celery Broker      │
-                  │   :6379/2 - Celery Backend     │
                   └─────┬──────────────────┬──────┘
                         │                  │
                   ┌─────▼───────┐   ┌─────▼──────┐
                   │  PostgreSQL  │   │  Worker     │
                   │  :5432       │   │  Service    │
-                  │  (Primary    │   │  (Celery)   │
-                  │   Store)     │   └─────┬──────┘
-                  └─────────────┘         │
-                                    ┌─────▼──────┐
-                                    │   Search    │
-                                    │   Service   │
-                                    │   :8002     │
-                                    │  (FastAPI)  │
-                                    └─────┬──────┘
-                                          │
-                                    ┌─────▼──────┐
-                                    │Elasticsearch│
-                                    │   :9200     │
+                  │  (Primary    │   │  :8003      │
+                  │   Store)     │   │ (Spring     │
+                  └─────────────┘    │  @Scheduled)│
+                                     └─────┬──────┘
+                                           │ HTTP (indexing calls)
+                                     ┌─────▼──────┐
+                                     │   Search    │
+                                     │   Service   │
+                                     │   :8002     │
+                                     │ (Spring Boot│
+                                     │  + ES)      │
+                                     └─────┬──────┘
+                                           │
+                                     ┌─────▼──────┐
+                                     │Elasticsearch│
+                                     │   :9200     │
+                                     └────────────┘
+
+                                    ┌────────────┐
+                                    │ Frontend   │
+                                    │ Web :3000  │
+                                    │ (React,    │
+                                    │  nginx-    │
+                                    │  served)   │
                                     └────────────┘
 ```
+
+Per `docker-compose.yml`: `nginx` depends on `api-service` and `websocket-service` only (those are the two proxied upstreams in `nginx/nginx.conf`). `api-service`, `websocket-service`, and `worker-service` all depend on `postgres` and `redis`. `search-service` depends only on `elasticsearch`. `frontend-web` is a separate container (served by its own Nginx, port 3000) that depends on `api-service` and `websocket-service` being reachable at runtime, not at build/startup order.
 
 ## Microservices Detail
 
 ### 1. API Service (`services/api-service/`)
 
-**Framework:** FastAPI with async SQLAlchemy
+**Framework:** Spring Boot 3.5 (Spring MVC, Spring Data JPA, Spring Security), Java 21
 **Port:** 8000
 
-The primary HTTP API gateway handling all synchronous CRUD operations. It is the most heavily loaded service and the first to be scaled horizontally.
+The primary HTTP API gateway handling all synchronous CRUD operations.
 
-**Modules:**
-- `routes/` - Endpoint definitions organized by domain (auth, users, rooms, messages, relationships, search, upload, notifications, health)
-- `models/` - SQLAlchemy ORM models (User, Room, RoomMember, Message, MessageReaction, MessageAttachment, Relationship, UserNotification)
-- `schemas/` - Pydantic request/response validation schemas
-- `auth.py` - JWT creation, decoding, password hashing with bcrypt
-- `middleware.py` - CORS, request timing
-- `dependencies.py` - Dependency injection (get_current_user, get_optional_user)
-- `database.py` - Async SQLAlchemy engine and session factory
-- `redis_client.py` - Async Redis client for publishing events
+**Key packages (`com.chatapp.api`):**
+- `controller/` - `AuthController`, `UserController`, `RoomController`, `MessageController`, `RelationshipController`, `SearchController`, `UploadController`, `NotificationController`, `HealthController`
+- `model/` - JPA entities: `User`, `Room`, `RoomMember`, `Message`, `MessageReaction`, `MessageAttachment`, `Relationship`, `UserNotification`
+- `repository/` - Spring Data JPA repositories, one per entity
+- `service/` - `UserService`, `RoomService`, `MessageService`, `RedisPublisherService`
+- `security/` - `JwtService` (token issue/verify), `JwtAuthFilter` (request-level auth)
+- `middleware/` - `RateLimitingFilter`, `GlobalExceptionHandler`
+- `config/` - `SecurityConfig` (stateless JWT filter chain, BCrypt), `WebConfig` (CORS + `/uploads/**` static resource mapping), `RedisConfig`, `PropertiesConfig`
 
 **Key architecture decisions:**
-- Uses `NullPool` to avoid connection pooling issues in async context
-- Sessions are created per-request via dependency injection
-- Message mutations (edit, delete, reaction) publish events to Redis pub/sub
+- Stateless JWT auth: `SecurityConfig` disables CSRF and sessions, permits `/health*` and `/api/v1/auth/{register,login,refresh}`, and requires authentication everywhere else via `JwtAuthFilter`.
+- Message mutations (send/edit/delete/reactions) are written via `MessageService` and published to Redis so `websocket-service` can fan them out.
+- File uploads are written straight to a local `uploads/` directory on the container filesystem (see `UploadController`), not to S3 or a CDN.
 
 ### 2. WebSocket Service (`services/websocket-service/`)
 
-**Framework:** FastAPI with WebSocket support
+**Framework:** Spring Boot (plain `org.springframework.web.socket.handler.TextWebSocketHandler`, not STOMP/SockJS)
 **Port:** 8001
 
 Handles all real-time bidirectional communication. Maintains in-memory state of active connections and room subscriptions.
 
-**Modules:**
-- `routes.py` - Single WebSocket endpoint at `/ws`
-- `connection_manager.py` - Manages active connections and room subscriptions
-- `message_handler.py` - Processes incoming WebSocket events
-- `presence_tracker.py` - Manages online/offline status publishing
-- `middleware.py` - JWT verification for WebSocket connections
-- `redis_client.py` - Redis pub/sub subscriber and presence store
-- `database.py` - Direct database access for WebSocket message writes
+**Key packages (`com.chatapp.websocket`):**
+- `ws/ChatWebSocketHandler` - the single WebSocket endpoint, registered at `/ws` by `config/WebSocketConfig` (`@EnableWebSocket`)
+- `message/MessageHandler` - dispatches inbound event types: `message:send`, `typing:start`, `typing:stop`, `room:join`, `room:leave`
+- `manager/ConnectionManager` - tracks sessions per user and room membership, performs broadcasts
+- `presence/PresenceTracker` - sets `presence:{userId}` in Redis and publishes `presence:online`/`presence:offline` events
+- `redis/RedisPublisher` - publishes events to Redis pub/sub
+- `redis/RoomEventSubscriber` - subscribes to the `room:*` channel pattern so events from other instances (or from api-service) reach locally-connected clients
+- `repository/MessageRepository` - writes new messages directly (hand-written SQL via Spring's JDBC support, not a JPA entity)
+- `security/JwtService` - verifies the JWT passed as the `token` query parameter on connect
 
 **Connection lifecycle:**
-1. Client connects to `ws://host/ws?token=<jwt>`
-2. Server verifies JWT and registers connection
-3. Client sends `room:join` to subscribe to room events
-4. Server broadcasts events to all room subscribers
-5. On disconnect, user is removed from rooms and marked offline
+1. Client connects to `ws://host/ws?token=<jwt>`.
+2. `ChatWebSocketHandler.afterConnectionEstablished` verifies the JWT; on failure it closes the session with code 4001.
+3. On success, the connection is registered in `ConnectionManager` and `PresenceTracker.setOnline(...)` is called.
+4. Client sends `room:join` to subscribe to room events.
+5. Server broadcasts events to all room subscribers via `ConnectionManager`.
+6. On disconnect, the user is removed from `ConnectionManager` and marked offline via `PresenceTracker.setOffline(...)`.
 
 **Event flow patterns:**
-- **Client-initiated messages:** Client sends `message:send` → WebSocket writes to DB → broadcasts to room (excluding sender) → publishes to Redis for API service
-- **API-initiated updates:** API service edits/deletes message → publishes to `room:{id}` → WebSocket service receives via Redis → broadcasts to room
-- **Typing indicators:** Client sends `typing:start/stop` → WebSocket broadcasts to room subscribers (excluding sender)
+- **Client-initiated messages:** client sends `message:send` → `MessageHandler` inserts the row via `MessageRepository` → broadcasts `message:new` to the room (excluding the sender) → publishes the same event on Redis so other websocket-service instances can forward it.
+- **Typing indicators:** client sends `typing:start`/`typing:stop` → broadcast as `typing:indicator` to room subscribers (excluding sender); not persisted.
+- **Cross-instance fan-out:** any event published to a `room:{roomId}` Redis channel is picked up by `RoomEventSubscriber` and rebroadcast to locally-connected sessions in that room.
 
 ### 3. Search Service (`services/search-service/`)
 
-**Framework:** FastAPI
+**Framework:** Spring Boot wrapping the Elasticsearch Java client
 **Port:** 8002
 
-Dedicated search service that wraps Elasticsearch operations. Provides a simple internal API for indexing, searching, and deleting messages.
+Dedicated search service providing a simple internal API for indexing, searching, and deleting messages in Elasticsearch.
 
-**Modules:**
-- `routes.py` - Internal REST endpoints for index/search/delete
-- `elasticsearch_client.py` - ES connection management and query construction
-- `models.py` - Pydantic models for request/response
+**Key packages (`com.chatapp.search`):**
+- `controller/SearchController` - REST endpoints below
+- `client/SearchService` - Elasticsearch connection and query construction
+- `dto/` - `IndexMessageRequest`, `SearchResult`
 
-**Endpoints (internal):**
+**Endpoints:**
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/search/index` | Index a message |
-| GET | `/api/v1/search/messages` | Search messages |
-| DELETE | `/api/v1/search/messages/{id}` | Remove from index |
+| GET | `/api/v1/search/messages` | Search messages (`q`, optional `roomId`, `limit` capped at 200, `offset`) |
+| DELETE | `/api/v1/search/messages/{messageId}` | Remove a message from the index |
 | GET | `/api/v1/search/health` | Health check |
-
-**Search analysis:** Custom `message_analyzer` using standard tokenizer with lowercase and stop filter.
 
 ### 4. Worker Service (`services/worker-service/`)
 
-**Framework:** Celery with Redis broker
-**Port:** N/A (background worker)
+**Framework:** Spring Boot using Spring's `@Scheduled` cron annotations — **not** Celery, and there is no separate message broker for task dispatch (Redis is still used, but only by the services it reads/writes, not as a task queue).
+**Port:** 8003 (exposes Spring Boot Actuator/health endpoints; it is otherwise a background process, not a user-facing API)
 
-Handles asynchronous and scheduled tasks.
+**Scheduled tasks (`task/ScheduledTasks`):**
+| Method | Cron | Delegates to |
+|--------|------|--------------|
+| `cleanupExpiredSessions` | `0 3 * * *` (daily 3:00 AM) | `MaintenanceService` |
+| `archiveOldMessages` | `0 4 * * *` (daily 4:00 AM) | `MaintenanceService` |
+| `updateStaleStatuses` | `0 */5 * * * *` (every 5 min) | `UserStatusService` |
+| `cleanupInactiveUsers` | `0 5 * * *` (daily 5:00 AM) | `UserStatusService` |
+| `cleanupAbandonedRooms` | `0 6 * * *` (daily 6:00 AM) | `RoomCleanupService` |
 
-**Task categories:**
-- **Notification tasks** (`tasks/notification_tasks.py`):
-  - `send_push_notification` - Store push notification in DB
-  - `send_email_notification` - Store email notification (email integration placeholder)
-  - `notify_offline_users` - Send push notifications to offline room members
-
-- **Message tasks** (`tasks/message_tasks.py`):
-  - `index_message` - Index message in Elasticsearch (via Search Service API)
-  - `process_message_attachments` - Verify attachment file sizes
-  - `delete_message_from_index` - Remove message from search index
-
-- **User tasks** (`tasks/user_tasks.py`):
-  - `update_stale_statuses` - Mark users offline after 5 min inactivity
-  - `cleanup_inactive_users` - Deactivate users inactive for 90 days
-
-- **Room tasks** (`tasks/room_tasks.py`):
-  - `cleanup_abandoned_rooms` - Delete rooms with no members older than 30 days
-  - `update_room_last_activity` - Update room's updated_at timestamp
-
-- **Maintenance tasks** (`tasks/maintenance_tasks.py`):
-  - `cleanup_expired_sessions` - Delete old user_status_history records
-  - `archive_old_messages` - Soft-delete messages older than 90 days
-
-**Scheduled tasks (Celery Beat):**
-```python
-cleanup_expired_sessions: daily 3:00 AM
-archive_old_messages: daily 4:00 AM
-update_stale_statuses: every 5 minutes
-```
+**Supporting services:**
+- `MaintenanceService` - session/message cleanup and archival
+- `UserStatusService` - presence staleness and inactive-user cleanup
+- `RoomCleanupService` - deletes abandoned rooms
+- `NotificationService` - notification persistence/dispatch
+- `SearchIndexService` - calls `search-service` over HTTP (`RestTemplate`) at `${app.search-service.url}/api/v1/search/index` (and the delete equivalent) to keep the Elasticsearch index in sync
 
 ## Component Interaction
 
 ### API Service ↔ PostgreSQL
-- SQLAlchemy async ORM with connection pooling via `async_sessionmaker`
-- All CRUD operations go through the database session
-- Migrations via Alembic
+- Spring Data JPA over the `postgresql` JDBC driver.
+- All CRUD operations go through repository interfaces backed by JPA entities.
+- No migration framework — schema changes are applied by editing `database/schema.sql`/`indexes.sql` and re-initializing the database (see below).
 
 ### API Service ↔ Redis
-- Publishes room events (message:updated, message:deleted, message:reaction)
-- Events published to channel `room:{room_id}`
+- `RedisPublisherService` publishes room events for message mutations.
 
 ### WebSocket ↔ Redis
-- Subscribes to `room:*` pattern for API-initiated events
-- Maintains presence data with `presence:{user_id}` keys
-- Tracks room members with `room:{room_id}:members` sets
-- Publishes presence events to `presence` channel
+- Subscribes to the `room:*` pattern for cross-instance/API-initiated events (`RoomEventSubscriber`).
+- Maintains presence data with `presence:{userId}` keys and room membership with `room:{roomId}:members` sets.
+- Publishes presence events to the `presence` channel.
 
-### Worker ↔ Redis
-- Uses Redis as Celery broker (DB 1) and result backend (DB 2)
-- `task_acks_late=True` ensures at-least-once delivery
-- `worker_prefetch_multiplier=1` for fair distribution
+### Worker ↔ Postgres/Redis
+- Scheduled jobs operate directly against Postgres via the services listed above; Redis is used for whatever caching/presence state those services need, not as a task broker.
 
 ### Worker ↔ Search Service
-- HTTP calls to Search Service API for indexing/deleting
-- Retries with timeouts for resilience
-
-### API Service ↔ Search (direct)
-- Database-level ILIKE search for basic text search
-- Elasticsearch-backed search delegated to Search Service
-
-## Shared Library (`shared/`)
-
-The `shared/` package provides reusable code:
-- `models/` - SQLAlchemy model definitions shared between services
-- `schemas/` - Common Pydantic schemas
-- `constants/` - App-wide constants, error codes, configuration
-- `utils/` - Helper functions, validators, formatters
+- `SearchIndexService` makes plain HTTP calls (`RestTemplate`) to `search-service`'s `/api/v1/search/index` and delete endpoints.
 
 ## Deployment Architecture
 
-See DEPLOYMENT.md for complete deployment guide.
+See DEPLOYMENT.md for the complete deployment guide.
 
-**Development:** Single Docker Compose file with hot-reload volumes
-**Production:** Docker Compose with separate `.env` files per service, SSL termination at Nginx, optional orchestrator (Kubernetes/Swarm)
+**Development:** `docker-compose.yml` + `docker-compose.dev.yml` overrides, started via `make dev`.
+**Production:** `docker-compose.yml` with `.env.production` values. This repository does not include Kubernetes manifests, Helm charts, or a configured CI/CD pipeline — deployment today is Docker Compose only.
 
 ### Network Topology
 
-All services join `chat-network` bridge network. Services communicate by service name (Docker DNS). Ports are exposed only as needed:
-- External: Nginx (80/443), Frontend Web (3000)
-- Internal: PostgreSQL (5432), Redis (6379), Elasticsearch (9200)
-- Monitoring: Prometheus (9090), Grafana (3001), Jaeger (16686)
+All services join the `chat-network` bridge network defined in `docker-compose.yml`. Services communicate by service name (Docker DNS).
+- External: Nginx (80/443), Frontend Web (3000), Postgres (5432, exposed for local tooling), Redis (6379), Elasticsearch (9200)
+- Monitoring: Prometheus (9090), Grafana (3001), Jaeger (16686, OTLP 4318)
+
+(Note: in the current `docker-compose.yml`, Postgres, Redis, and Elasticsearch ports are published to the host for local development convenience; tighten this for a real production deployment.)
 
 ## Data Flow Examples
 
 ### User sends a message (WebSocket path):
 ```
-Client → WebSocket Service → PostgreSQL (write)
+Client → WebSocket Service → PostgreSQL (write, via MessageRepository)
                            → Redis pub/sub (event)
                            → In-memory broadcast to room members
-Worker → Redis (Celery) → index_message → Search Service → Elasticsearch
-                       → notify_offline_users
+Worker (scheduled, not triggered per-message) → SearchIndexService → Search Service → Elasticsearch
 ```
+Note: unlike a task-queue design, there is no immediate "index this message now" background job fired on send — indexing is driven by whatever the worker's scheduled/service logic does, backed by direct HTTP calls into search-service.
 
 ### User edits a message (REST path):
 ```
 Client → API Service → PostgreSQL (update)
                      → Redis pub/sub (room:{id})
-WebSocket Service ← Redis subscription
+WebSocket Service ← Redis subscription (RoomEventSubscriber)
                  → In-memory broadcast to room members
 ```
 
 ### User searches messages:
 ```
-Client → API Service → PostgreSQL (ILIKE search)
-       → Search Service → Elasticsearch (if delegated)
+Client → API Service (SearchController, /api/v1/search/messages) → MessageService
+       → (delegates to) Search Service → Elasticsearch
 ```
 
 ## Database Schema
 
-Schema is defined in `database/schema.sql` and managed via Alembic migrations in `database/migrations/`.
+Schema is defined in `database/schema.sql` and `database/indexes.sql`, applied automatically on first container start via Postgres's `docker-entrypoint-initdb.d` mechanism (see `docker-compose.yml`). There is no migration tool wired into this project.
 
 ### Core Tables
 - **users** - User accounts with profile info, auth fields, presence status
@@ -254,9 +233,9 @@ Schema is defined in `database/schema.sql` and managed via Alembic migrations in
 ### Supporting Tables
 - **message_reactions** - Emoji reactions on messages (unique per user+message+emoji)
 - **message_attachments** - File attachments linked to messages
-- **relationships** - Friend connections with status (pending/accepted/blocked)
+- **relationships** - Friend connections with status (pending/accepted)
 - **user_status_history** - Audit log of status changes
-- **user_notifications** - Push/email notifications stored per user
+- **user_notifications** - Notifications stored per user
 
 ### Key Indexes
 ```sql
@@ -269,11 +248,12 @@ See `database/indexes.sql` for the complete list.
 
 ## Security Architecture
 
-See SECURITY.md for detailed security overview.
+See SECURITY.md for the detailed security overview.
 
-- **Authentication:** JWT with HS256, access tokens (30min) + refresh tokens (7 days)
-- **Password hashing:** bcrypt via passlib
-- **Authorization:** Role-based (room admin/member), ownership checks
-- **CORS:** Configured allowed origins only
-- **File upload:** Content type whitelist, size limit (50MB)
-- **Secrets:** Environment variables, never hardcoded
+- **Authentication:** JWT (via the `jjwt` library) issued/verified by `JwtService`; enforced per-request by `JwtAuthFilter` in `SecurityConfig`'s stateless filter chain.
+- **Password hashing:** BCrypt (`BCryptPasswordEncoder`).
+- **Authorization:** Ownership and room-membership checks performed in service/controller code.
+- **CORS:** Configured allowed origins via `WebConfig` + `ApiProperties`.
+- **Rate limiting:** `RateLimitingFilter` servlet filter in api-service.
+- **File upload:** Content-type allowlist and 50MB size limit enforced in `UploadController`; files are written to local disk, not scanned or sent to a CDN (see SECURITY.md for what is and isn't implemented).
+- **Secrets:** Environment variables (`.env` files per service), never hardcoded.

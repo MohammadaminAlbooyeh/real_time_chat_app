@@ -19,13 +19,13 @@
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, microservices, data flow, communication patterns |
-| [SCALING.md](SCALING.md) | Horizontal scaling, database pooling, Redis clustering, load balancing |
+| [SCALING.md](SCALING.md) | Horizontal scaling, database pooling, Redis, load balancing |
 
 ## Operations
 
 | Document | Description |
 |----------|-------------|
-| [MONITORING.md](MONITORING.md) | Prometheus, Grafana, Jaeger, Sentry setup and usage |
+| [MONITORING.md](MONITORING.md) | Prometheus, Grafana, Jaeger setup and usage |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions |
 
 ## Security & Development
@@ -40,26 +40,26 @@
 ## Quick Links
 
 - **Root README:** [`README.md`](../README.md) - Project overview and quick start
-- **API Docs (root):** [`API_DOCS.md`](../API_DOCS.md) - Quick API reference
-- **Architecture (root):** [`ARCHITECTURE.md`](../ARCHITECTURE.md) - Quick architecture overview
 
 ## Service Summary
 
 | Service | Tech | Port | Description |
 |---------|------|------|-------------|
-| API Service | FastAPI + SQLAlchemy async | 8000 | REST API for all CRUD operations |
-| WebSocket Service | FastAPI WebSockets + Redis | 8001 | Real-time messaging and presence |
-| Search Service | FastAPI + Elasticsearch | 8002 | Full-text message search |
-| Worker Service | Celery + Redis | - | Async tasks, notifications, maintenance |
+| API Service | Spring Boot (Spring MVC + Spring Data JPA) | 8000 | REST API for all CRUD operations |
+| WebSocket Service | Spring Boot (`TextWebSocketHandler`) + Redis | 8001 | Real-time messaging and presence |
+| Search Service | Spring Boot + Elasticsearch client | 8002 | Full-text message search |
+| Worker Service | Spring Boot (`@Scheduled` cron jobs) | 8003 | Scheduled maintenance, cleanup, notifications |
 | PostgreSQL 16 | SQL | 5432 | Primary data store |
-| Redis 7 | In-memory | 6379 | Cache, pub/sub, task broker |
-| Elasticsearch 8 | Search engine | 9200 | Full-text search index |
-| Nginx | Reverse proxy | 80/443 | Load balancing, SSL termination |
+| Redis 7 | In-memory | 6379 | Cache, pub/sub |
+| Elasticsearch 8.12 | Search engine | 9200 | Full-text search index |
+| Nginx | Reverse proxy | 80/443 | Routes to api-service and websocket-service, SSL termination |
+
+All four backend services are independent Java 21 / Spring Boot 3.5 Maven projects under `services/`; there is no shared Python package or FastAPI/Celery component anymore.
 
 ## Frontend Clients
 
 | Client | Tech | Directory |
 |--------|------|-----------|
 | Web | React 18 + Vite + Redux Toolkit | `frontend/web/` |
-| Desktop | Electron wrapper | `frontend/desktop/` |
-| Mobile | React Native / Expo | `frontend/mobile/` |
+| Desktop | Electron + React + Vite | `frontend/desktop/` |
+| Mobile | React Native + Expo | `frontend/mobile/` |

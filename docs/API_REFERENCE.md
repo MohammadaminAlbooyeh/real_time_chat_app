@@ -1,762 +1,351 @@
 # API Reference
 
-Base URL: `https://yourdomain.com/api/v1` (production) / `http://localhost:8000/api/v1` (development)
+Base URL: `https://yourdomain.com/api/v1` (production, via Nginx) / `http://localhost:8000/api/v1` (api-service default local port).
+
+The REST API is served by **api-service** (Spring Boot 3.5, Java 21). JSON field names are **camelCase** (plain Jackson defaults — there is no snake_case naming strategy configured), which differs from the old Python/FastAPI API this replaced.
+
+A separate internal microservice, **search-service**, exposes its own `/api/v1/search` API backed by Elasticsearch; it is documented at the end of this file.
 
 ## Authentication
 
-All protected endpoints require a Bearer JWT token:
+Protected endpoints require a Bearer JWT, issued/verified by api-service's `JwtService` (`jjwt` library) and checked by `JwtAuthFilter` (Spring Security, stateless sessions, CSRF disabled):
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-Access tokens expire in 30 minutes. Use the refresh endpoint to obtain new tokens.
+Public (no-auth) paths, per `SecurityConfig`:
+- `/health`, `/health/**`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+
+Every other endpoint requires a valid access token. Default expiry (see `application.yml`): access token 30 minutes, refresh token 7 days (`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, `JWT_REFRESH_TOKEN_EXPIRE_DAYS`).
 
 ---
 
-## 1. Auth
+## 1. Auth (`AuthController`)
 
 ### POST /auth/register
 
-Create a new user account.
-
-**Request body:**
+**Request body** (`UserCreate`):
 ```json
 {
   "username": "johndoe",
   "email": "john@example.com",
   "password": "securePassword123!",
-  "display_name": "John Doe"
+  "displayName": "John Doe"
 }
 ```
 
-**Validation rules:**
-- `username`: 3-50 chars, alphanumeric + underscore, unique
-- `email`: valid email format, unique
-- `password`: 8-128 chars
-- `display_name`: optional, max 100 chars
+**Validation:** `username` 3-50 chars; `email` valid format; `password` 8-128 chars; `displayName` optional, max 100 chars.
 
-**Response** `201 Created`:
+**Response** `201 Created` (`TokenResponse`):
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "tokenType": "bearer",
   "user": {
     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "username": "johndoe",
     "email": "john@example.com",
-    "display_name": "John Doe",
-    "avatar_url": null,
+    "displayName": "John Doe",
+    "avatarUrl": null,
     "bio": null,
-    "is_online": false,
-    "last_seen": "2025-06-04T12:00:00Z",
-    "created_at": "2025-06-04T12:00:00Z"
+    "isOnline": false,
+    "lastSeen": "2026-06-04T12:00:00",
+    "createdAt": "2026-06-04T12:00:00"
   }
 }
 ```
-
-**Error responses:**
-- `409 Conflict`: `{"detail": "Email or username already taken"}`
 
 ### POST /auth/login
 
-Authenticate with email and password.
+**Request body** (`UserLogin`): `{"email": "...", "password": "..."}`
 
-**Request body:**
-```json
-{
-  "email": "john@example.com",
-  "password": "securePassword123!"
-}
-```
-
-**Response** `200 OK`: Same structure as register.
-
-**Error responses:**
-- `401 Unauthorized`: `{"detail": "Invalid email or password"}`
-- `403 Forbidden`: `{"detail": "Account is deactivated"}`
+**Response** `200 OK`: same `TokenResponse` shape as register.
 
 ### POST /auth/refresh
 
-Refresh an expired access token using a refresh token.
+**Request body** (`RefreshTokenRequest`): `{"refreshToken": "..."}`
 
-**Request body:**
-```json
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Response** `200 OK`: Returns new `access_token`, `refresh_token`, and `user`.
-
-**Error responses:**
-- `401 Unauthorized`: `{"detail": "Invalid or expired refresh token"}`
-- `401 Unauthorized`: `{"detail": "User not found or inactive"}`
+**Response** `200 OK`: new `TokenResponse`.
 
 ### POST /auth/logout
 
-Log out the current user (client-side token discard; server returns confirmation).
+Authenticated. No request body.
 
-**Response** `200 OK`:
-```json
-{
-  "message": "Logged out successfully"
-}
-```
+**Response** `200 OK`: `{"message": "Logged out successfully"}`
+
+Note: this is a stateless, client-side logout — the server does not maintain a token blocklist/session store, so it simply confirms the call; the client is responsible for discarding its tokens.
 
 ---
 
-## 2. Users
+## 2. Users (`UserController`, base `/api/v1/users`)
 
 ### GET /users/me
-
-Get the authenticated user's profile.
-
-**Response** `200 OK`: Full `UserResponse` object.
+Returns the authenticated user's `UserResponse` (same shape as the `user` object above).
 
 ### PATCH /users/me
 
-Update profile fields. Only provided fields are updated.
-
-**Request body** (all optional):
+**Request body** (`UserProfileUpdate`, all optional):
 ```json
-{
-  "display_name": "New Display Name",
-  "avatar_url": "https://cdn.example.com/avatars/uuid.jpg",
-  "bio": "Software engineer and coffee enthusiast."
-}
+{ "displayName": "New Name", "avatarUrl": "https://cdn.example.com/a.jpg", "bio": "..." }
 ```
+`displayName` max 100 chars, `avatarUrl`/`bio` max 500 chars.
 
-**Validation:**
-- `display_name`: max 100 chars
-- `avatar_url`: max 500 chars
-- `bio`: max 500 chars
-
-**Response** `200 OK`: Updated `UserResponse`.
+**Response** `200 OK`: updated `UserResponse`.
 
 ### POST /users/me/change-password
 
-Change the current user's password.
+**Request body** (`PasswordChange`): `{"currentPassword": "...", "newPassword": "..."}` (`newPassword` 8-128 chars).
 
-**Request body:**
+**Response** `200 OK`: `{"message": "Password changed successfully"}`
+
+### GET /users/search?q={query}
+
+**Response** `200 OK` (`UserSearchResult[]`):
 ```json
-{
-  "current_password": "oldPassword123!",
-  "new_password": "newPassword456!"
-}
+[{ "id": "...", "username": "johndoe", "displayName": "John Doe", "avatarUrl": null, "isOnline": true }]
 ```
 
-**Response** `200 OK`:
-```json
-{
-  "message": "Password changed successfully"
-}
-```
-
-**Error responses:**
-- `400 Bad Request`: `{"detail": "Current password is incorrect"}`
-
-### GET /users/search?q={query}&limit={limit}
-
-Search for users by username or display_name (case-insensitive).
-
-**Parameters:**
-| Name | Type | Required | Default | Description |
-|------|------|----------|---------|-------------|
-| `q` | string | Yes | - | Search query, 1-50 chars |
-| `limit` | integer | No | 20 | Max results (max 200) |
-
-**Response** `200 OK`:
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "username": "johndoe",
-    "display_name": "John Doe",
-    "avatar_url": null,
-    "is_online": true
-  }
-]
-```
-
-The authenticated user is excluded from results.
-
-### GET /users/{user_id}
-
-Get a user's public profile by UUID.
-
-**Response** `200 OK`: Full `UserResponse` object.
-
-**Error responses:**
-- `404 Not Found`: `{"detail": "User not found"}`
+### GET /users/{userId}
+Returns a `UserResponse` for any user (public profile fields; no membership check in current code).
 
 ---
 
-## 3. Rooms
+## 3. Rooms (`RoomController`, base `/api/v1/rooms`)
 
 ### POST /rooms
 
-Create a new chat room. The creator becomes an admin member automatically.
+**Request body** (`RoomCreate`): `{"name": "Project Alpha", "description": "...", "isPrivate": false}` (`name` required, max 100 chars; `description` optional, max 500 chars).
 
-**Request body:**
+**Response** `201 Created` (`RoomResponse`):
 ```json
 {
-  "name": "Project Alpha",
-  "description": "Discussion about Project Alpha",
-  "is_private": false
+  "id": "...", "name": "Project Alpha", "description": "...", "isPrivate": false,
+  "createdById": "...", "createdAt": "...", "updatedAt": "...",
+  "memberCount": 1, "lastMessage": null, "lastMessageAt": null
 }
 ```
 
-**Validation:**
-- `name`: 1-100 chars, required
-- `description`: max 500 chars, optional
-- `is_private`: boolean, default false
+### GET /rooms?limit=50&offset=0
+Lists rooms the user is a member of. `limit`/`offset` optional, default 50/0. Returns `RoomResponse[]`.
 
-**Response** `201 Created`:
+### GET /rooms/{roomId}
+
+**Response** `200 OK` (`RoomDetailResponse`): same fields as `RoomResponse` plus a `members: RoomMemberResponse[]` array:
 ```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "name": "Project Alpha",
-  "description": "Discussion about Project Alpha",
-  "is_private": false,
-  "created_by_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "created_at": "2025-06-04T12:00:00Z",
-  "updated_at": "2025-06-04T12:00:00Z",
-  "member_count": 1,
-  "last_message": null,
-  "last_message_at": null
-}
+{ "id": "roomId", "userId": "...", "username": "...", "displayName": "...", "avatarUrl": null, "role": "admin", "joinedAt": "..." }
 ```
 
-**Error responses:**
-- `400 Bad Request`: `{"detail": "Maximum rooms limit reached"}` (limit is 100)
+### PUT /rooms/{roomId}
 
-### GET /rooms?limit={limit}&offset={offset}
+**Request body** (`RoomUpdate`, all optional): `{"name": "...", "description": "...", "isPrivate": true}`.
 
-List rooms the user is a member of, ordered by most recent activity.
+**Response** `200 OK`: updated `RoomResponse`.
 
-**Parameters:**
-| Name | Type | Required | Default | Description |
-|------|------|----------|---------|-------------|
-| `limit` | integer | No | 50 | Max results (max 200) |
-| `offset` | integer | No | 0 | Pagination offset |
+### DELETE /rooms/{roomId}
+`204 No Content`.
 
-**Response** `200 OK`: Array of `RoomResponse` objects.
+### POST /rooms/{roomId}/members
 
-### GET /rooms/{room_id}
+**Request body** (`AddMemberRequest`): `{"userId": "..."}`.
 
-Get detailed room information including members.
+**Response** `201 Created`: `{"message": "Member added successfully"}`
 
-**Response** `200 OK`:
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "name": "Project Alpha",
-  "description": "Discussion about Project Alpha",
-  "is_private": false,
-  "created_by_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "created_at": "2025-06-04T12:00:00Z",
-  "updated_at": "2025-06-04T12:00:00Z",
-  "member_count": 3,
-  "members": [
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "username": "johndoe",
-      "display_name": "John Doe",
-      "avatar_url": null,
-      "role": "admin",
-      "joined_at": "2025-06-04T12:00:00Z"
-    },
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
-      "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
-      "username": "janedoe",
-      "display_name": "Jane Doe",
-      "avatar_url": null,
-      "role": "member",
-      "joined_at": "2025-06-04T12:30:00Z"
-    }
-  ]
-}
-```
+### DELETE /rooms/{roomId}/members/{userId}
+**Response** `200 OK`: `{"message": "Member removed successfully"}`
 
-**Error responses:**
-- `403 Forbidden`: `{"detail": "You are not a member of this room"}`
-- `404 Not Found`: `{"detail": "Room not found"}`
-
-### PUT /rooms/{room_id}
-
-Update room settings (admin only).
-
-**Request body** (all optional):
-```json
-{
-  "name": "Project Alpha Renamed",
-  "description": "Updated description",
-  "is_private": true
-}
-```
-
-**Response** `200 OK`: Updated `RoomResponse`.
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Only room admins can update the room"}`
-
-### DELETE /rooms/{room_id}
-
-Delete a room (creator only). Cascades to delete members, messages, and reactions.
-
-**Response** `204 No Content`.
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Only the room creator can delete the room"}`
-
-### POST /rooms/{room_id}/members
-
-Add a member to a room (admin only).
-
-**Request body:**
-```json
-{
-  "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7"
-}
-```
-
-**Response** `201 Created`:
-```json
-{
-  "message": "Member added successfully"
-}
-```
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Only admins can add members"}`
-- `409 Conflict`: `{"detail": "User is already a member"}`
-
-### DELETE /rooms/{room_id}/members/{user_id}
-
-Remove a member from a room (admin only).
-
-**Response** `200 OK`:
-```json
-{
-  "message": "Member removed successfully"
-}
-```
-
-### POST /rooms/{room_id}/leave
-
-Leave a room (remove yourself from members).
-
-**Response** `200 OK`:
-```json
-{
-  "message": "Left room successfully"
-}
-```
-
-**Error responses:**
-- `404 Not Found`: `{"detail": "You are not a member of this room"}`
+### POST /rooms/{roomId}/leave
+**Response** `200 OK`: `{"message": "Left room successfully"}`
 
 ---
 
-## 4. Messages
+## 4. Messages (`MessageController`, base `/api/v1/rooms/{roomId}/messages`)
 
-### GET /rooms/{room_id}/messages?limit={limit}&offset={offset}&before={iso_datetime}
+### GET /rooms/{roomId}/messages?limit=50&offset=0&before={ISO LocalDateTime}
 
-Get messages in a room, newest first.
-
-**Parameters:**
-| Name | Type | Required | Default | Description |
-|------|------|----------|---------|-------------|
-| `limit` | integer | No | 50 | Max results (max 200) |
-| `offset` | integer | No | 0 | Pagination offset |
-| `before` | ISO datetime | No | - | Cursor: get messages before this timestamp |
-
-**Response** `200 OK`:
+**Response** `200 OK` (`PaginatedResponse<MessageResponse>`):
 ```json
 {
   "items": [
     {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "room_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "sender_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "sender_username": "johndoe",
-      "sender_avatar": null,
-      "content": "Hello everyone!",
-      "message_type": "text",
-      "reply_to_id": null,
-      "reply_preview": null,
-      "is_deleted": false,
-      "edited_at": null,
-      "created_at": "2025-06-04T12:00:00Z",
-      "reactions": [
-        {
-          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
-          "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
-          "username": "janedoe",
-          "emoji": "👍",
-          "created_at": "2025-06-04T12:00:05Z"
-        }
-      ],
-      "attachments": [
-        {
-          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa8",
-          "file_name": "presentation.pdf",
-          "file_url": "/uploads/2025/06/04/uuid.pdf",
-          "file_type": "document",
-          "file_size": 2048000,
-          "created_at": "2025-06-04T12:00:01Z"
-        }
-      ]
+      "id": "...", "roomId": "...", "senderId": "...", "senderUsername": "johndoe", "senderAvatar": null,
+      "content": "Hello everyone!", "messageType": "text", "replyToId": null, "replyPreview": null,
+      "isDeleted": false, "editedAt": null, "createdAt": "...",
+      "reactions": [{ "id": "...", "userId": "...", "username": "janedoe", "emoji": "👍", "createdAt": "..." }],
+      "attachments": [{ "id": "...", "fileName": "presentation.pdf", "fileUrl": "/uploads/2026/06/04/uuid.pdf", "fileType": "other", "fileSize": 2048000, "createdAt": "..." }]
     }
   ],
   "total": 150,
   "limit": 50,
   "offset": 0,
-  "has_more": true
+  "hasMore": true
 }
 ```
 
-### POST /rooms/{room_id}/messages
+### POST /rooms/{roomId}/messages
 
-Send a message in a room.
+**Request body** (`MessageSend`): `{"content": "Hello, world!", "messageType": "text", "replyToId": null}`. `content` required, 1-5000 chars; `messageType` defaults to `"text"` if omitted.
 
-**Request body:**
+**Response** `201 Created`: full `MessageResponse`.
+
+### PUT /rooms/{roomId}/messages/{messageId}
+
+**Request body** (`MessageEdit`): `{"content": "Updated message content"}` (1-5000 chars).
+
+**Response** `200 OK`: updated `MessageResponse` with `editedAt` set.
+
+### DELETE /rooms/{roomId}/messages/{messageId}
+`204 No Content`.
+
+### POST /rooms/{roomId}/messages/{messageId}/reactions
+
+**Request body** (`MessageReactionAdd`): `{"emoji": "🎉"}` (max 50 chars).
+
+**Response** `201 Created` (`ReactionResponse`):
 ```json
-{
-  "room_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "content": "Hello, world!",
-  "message_type": "text",
-  "reply_to_id": null
-}
+{ "id": "...", "userId": "...", "username": "johndoe", "emoji": "🎉", "createdAt": "..." }
 ```
 
-**Message types:** `text`, `image`, `file`, `system`
+### DELETE /rooms/{roomId}/messages/{messageId}/reactions/{reactionId}
+`204 No Content`.
 
-**Validation:**
-- `content`: 1-5000 chars, required
-- `reply_to_id`: optional, must reference a valid message in the same room
-
-**Response** `201 Created`: Full `MessageResponse`.
-
-### PUT /rooms/{room_id}/messages/{message_id}
-
-Edit your own message.
-
-**Request body:**
-```json
-{
-  "content": "Updated message content"
-}
-```
-
-**Response** `200 OK`: Updated `MessageResponse` with `edited_at` timestamp set.
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Can only edit your own messages"}`
-- `400 Bad Request`: `{"detail": "Cannot edit a deleted message"}`
-
-### DELETE /rooms/{room_id}/messages/{message_id}
-
-Soft-delete your own message. Content is replaced with `[deleted]`.
-
-**Response** `204 No Content`.
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Can only delete your own messages"}`
-
-### POST /rooms/{room_id}/messages/{message_id}/reactions
-
-Add a reaction emoji to a message.
-
-**Request body:**
-```json
-{
-  "emoji": "🎉"
-}
-```
-
-**Response** `201 Created`:
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "emoji": "🎉",
-  "created_at": "2025-06-04T12:00:00Z"
-}
-```
-
-**Error responses:**
-- `409 Conflict`: `{"detail": "Reaction already exists"}`
-
-### DELETE /rooms/{room_id}/messages/{message_id}/reactions/{reaction_id}
-
-Remove your own reaction from a message.
-
-**Response** `204 No Content`.
+> Note: creating/editing/deleting a message or reaction over REST does **not** push a live event to connected WebSocket clients today — see `docs/WEBSOCKET_EVENTS.md`. Only messages sent through the WebSocket's `message:send` event are broadcast in real time.
 
 ---
 
-## 5. Relationships
+## 5. Relationships / Friends (`RelationshipController`, base `/api/v1/relationships`)
 
-### POST /relationships/request/{user_id}
+### POST /relationships/request/{userId}
+**Response** `201 Created`: `{"message": "Friend request sent"}`
+Errors: `400` if targeting yourself, `404` if user not found, `409` if a relationship already exists either direction.
 
-Send a friend request to another user.
-
-**Response** `201 Created`:
-```json
-{
-  "message": "Friend request sent"
-}
-```
-
-**Error responses:**
-- `400 Bad Request`: `{"detail": "Cannot send friend request to yourself"}`
-- `404 Not Found`: `{"detail": "User not found"}`
-- `409 Conflict`: `{"detail": "Relationship already exists"}`
-
-### POST /relationships/respond/{relationship_id}?action={action}
-
-Respond to a pending friend request.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `action` | string | Yes | `accept` or `reject` |
-
-**Response** `200 OK`:
-```json
-{
-  "message": "Friend request accepted"
-}
-```
-
-**Error responses:**
-- `403 Forbidden`: `{"detail": "Not authorized to respond to this request"}`
-- `400 Bad Request`: `{"detail": "Request already responded to"}`
+### POST /relationships/respond/{relationshipId}?action=accept|reject
+**Response** `200 OK`: `{"message": "Friend request accepted"}` or `{"message": "Friend request rejected"}`.
+Errors: `403` if you're not the addressee, `400` if already responded to, `400` if `action` isn't `accept`/`reject`.
 
 ### GET /relationships/friends
-
-List all accepted friends.
-
-**Response** `200 OK`:
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "username": "janedoe",
-    "display_name": "Jane Doe",
-    "avatar_url": null,
-    "is_online": true
-  }
-]
-```
+**Response** `200 OK`: array of `{id, username, displayName, avatarUrl, isOnline}` for all `accepted` relationships.
 
 ### GET /relationships/pending
+**Response** `200 OK`: array of `{id, user: {id, username, displayName, avatarUrl}, createdAt}` for pending requests addressed to you.
 
-List pending friend requests received.
-
-**Response** `200 OK`:
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "user": {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa7",
-      "username": "bob",
-      "display_name": "Bob Smith",
-      "avatar_url": null
-    },
-    "created_at": "2025-06-03T12:00:00Z"
-  }
-]
-```
-
-### DELETE /relationships/{relationship_id}
-
-Remove a friend or cancel a pending request.
-
-**Response** `200 OK`:
-```json
-{
-  "message": "Friend removed"
-}
-```
+### DELETE /relationships/{relationshipId}
+Removes a friendship or cancels/rejects a request you're party to. **Response** `200 OK`: `{"message": "Friend removed"}`. `403` if you're neither party.
 
 ---
 
-## 6. Search
+## 6. Search in api-service (`SearchController`, base `/api/v1/search`)
 
-### GET /search/messages?q={query}&room_id={room_id}&limit={limit}
+### GET /search/messages?q={query}&roomId={roomId}&limit=50
 
-Search message content across rooms the user is a member of.
+Delegates to `MessageService.searchMessages` (i.e. this endpoint queries the primary datastore via api-service itself; it does **not** proxy to the separate `search-service`/Elasticsearch). `roomId` optional to scope to one room.
 
-**Parameters:**
-| Name | Type | Required | Default | Description |
-|------|------|----------|---------|-------------|
-| `q` | string | Yes | - | Search query, 1-200 chars |
-| `room_id` | UUID | No | - | Limit search to specific room |
-| `limit` | integer | No | 50 | Max results (max 200) |
-
-**Response** `200 OK`: Array of `MessageResponse` objects.
+**Response** `200 OK`: `MessageResponse[]` (same shape as section 4).
 
 ---
 
-## 7. Upload
+## 7. Upload (`UploadController`, `/api/v1/upload`)
 
-### POST /upload?room_id={room_id}&message_id={message_id}
+### POST /upload?roomId={roomId}&messageId={messageId}
 
-Upload a file attachment.
+`multipart/form-data` with a `file` part. `roomId` (UUID) required — caller must be a member of that room (`403` otherwise). `messageId` (UUID) optional — if given, must reference an existing message in that room (`404` otherwise), and the created attachment is persisted against it.
 
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `room_id` | UUID | Yes | Target room |
-| `message_id` | UUID | No | Attach to existing message |
+**Allowed content types** (exact allow-list checked against `file.getContentType()`):
+`image/jpeg`, `image/png`, `image/gif`, `image/webp`, `application/pdf`, `text/plain`, `application/zip`, `application/x-rar-compressed`, `application/x-7z-compressed`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`. Anything else → `400`.
 
-**Request:** `multipart/form-data` with field `file`.
+**Max size:** 50 MB (52,428,800 bytes checked in code; Spring's multipart limits in `application.yml` are `max-file-size: 50MB` / `max-request-size: 55MB`).
 
-**Allowed types:**
-- Images: JPEG, PNG, GIF, WebP
-- Documents: PDF, TXT, DOC, DOCX
-- Archives: ZIP, RAR, 7z
+**Storage:** written to the local filesystem at `uploads/yyyy/MM/dd/<uuid>.<ext>` and served back statically at `/uploads/...` (see `WebConfig` resource handler) — there is no S3/CDN integration.
 
-**Max size:** 50 MB
-
-**File storage:** `<upload_dir>/YYYY/MM/DD/<uuid>.<ext>`
-
-**Response** `201 Created`:
+**Response** `201 Created`, without `messageId`:
 ```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "message_id": null,
-  "file_name": "photo.jpg",
-  "file_url": "/uploads/2025/06/04/uuid.jpg",
-  "file_type": "image",
-  "file_size": 1024000,
-  "mime_type": "image/jpeg"
-}
+{ "id": "...", "fileName": "photo.jpg", "fileUrl": "/uploads/2026/06/04/uuid.jpg", "fileType": "image", "fileSize": 1024000, "mimeType": "image/jpeg" }
 ```
+With `messageId`, the body additionally includes `"messageId": "..."` and the attachment is saved via `MessageAttachmentRepository`. `fileType` is only ever `"image"` or `"other"` in the current code (there is no per-document-type classification).
 
 ---
 
-## 8. Notifications
+## 8. Notifications (`NotificationController`, base `/api/v1/notifications`)
 
-### GET /notifications?limit={limit}&offset={offset}&unread_only={bool}
+### GET /notifications?limit=50&offset=0&unreadOnly=false
 
-List notifications for the authenticated user.
-
-**Response** `200 OK`:
+**Response** `200 OK` (`NotificationListResponse`):
 ```json
 {
-  "items": [
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "title": "New message in Project Alpha",
-      "body": "John: Check out this link",
-      "data": {
-        "room_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-        "type": "new_message"
-      },
-      "notification_type": "push",
-      "is_read": false,
-      "created_at": "2025-06-04T12:00:00Z"
-    }
-  ],
+  "items": [{ "id": "...", "title": "...", "body": "...", "data": {"roomId": "...", "type": "new_message"}, "notificationType": "push", "isRead": false, "createdAt": "..." }],
   "total": 10,
-  "unread_count": 3
+  "unreadCount": 3
 }
 ```
 
 ### GET /notifications/unread-count
+**Response** `200 OK`: `{"unreadCount": 3}`
 
-**Response** `200 OK`:
-```json
-{
-  "unread_count": 3
-}
-```
-
-### PATCH /notifications/{notification_id}/read
-
-Mark a notification as read.
-
-**Response** `200 OK`: Updated `NotificationResponse`.
+### PATCH /notifications/{notificationId}/read
+**Response** `200 OK`: updated `NotificationResponse`. `404` if the notification doesn't belong to you (reported as "not found" rather than "forbidden").
 
 ### POST /notifications/read-all
-
-Mark all user notifications as read.
-
-**Response** `200 OK`:
-```json
-{
-  "message": "All notifications marked as read"
-}
-```
+**Response** `200 OK`: `{"message": "All notifications marked as read"}`
 
 ---
 
-## 9. Health
+## 9. Health (`HealthController`)
 
 ### GET /health
-
-**Response** `200 OK`:
-```json
-{
-  "status": "ok",
-  "service": "api-service"
-}
-```
+`{"status": "ok", "service": "api-service"}` — always 200, unauthenticated.
 
 ### GET /health/db
-
-**Response** `200 OK`:
-```json
-{
-  "status": "ok",
-  "database": "connected"
-}
-```
-
-**Response on failure** (HTTP 500):
-```json
-{
-  "status": "error",
-  "database": "connection refused"
-}
-```
+`200 OK` either way: `{"status": "ok", "database": "connected"}` on success, or `{"status": "error", "database": "<exception message>"}` on failure (note: the endpoint itself returns HTTP 200 even when the DB check fails — the failure is only visible in the body).
 
 ---
 
-## Common Error Responses
+## Error Response Shape
+
+Handled centrally by `GlobalExceptionHandler` (`@RestControllerAdvice`). All error bodies share this shape (note: **not** the old `{"detail": "..."}` format):
 
 ```json
-{
-  "detail": "Human-readable error description"
-}
+{ "status": 404, "error": "Not Found", "message": "Room not found", "path": "/api/v1/rooms/..." }
 ```
 
-| Status | Meaning |
-|--------|---------|
-| 400 | Bad request - validation error or invalid parameters |
-| 401 | Unauthorized - missing or invalid authentication |
-| 403 | Forbidden - insufficient permissions |
-| 404 | Resource not found |
-| 409 | Conflict - duplicate or conflicting state |
-| 422 | Unprocessable entity - request body validation failed |
-| 429 | Too many requests - rate limit exceeded |
-| 500 | Internal server error |
+| Status | Source |
+|--------|--------|
+| 400 | Bean validation failures (`MethodArgumentNotValidException`), or explicit `ResponseStatusException` in a controller/service |
+| 401 | `AuthenticationException` (missing/invalid JWT) |
+| 403 | `AccessDeniedException` or an explicit `ResponseStatusException(FORBIDDEN, ...)` |
+| 404 | `ResponseStatusException(NOT_FOUND, ...)` or Spring's `NoResourceFoundException` |
+| 409 | `ResponseStatusException(CONFLICT, ...)` (e.g. duplicate relationship) |
+| 429 | Rate limit exceeded (see below) — note this one has a *different* body shape |
+| 500 | Any uncaught exception |
 
 ## Rate Limiting
 
-| Endpoint Type | Limit |
-|---------------|-------|
-| Authenticated endpoints | 100 req/min per IP |
-| Auth (register, login) | 20 req/min per IP |
-| WebSocket connections | 60/min per IP |
+`RateLimitingFilter` applies a single flat limit, **not** tiered by endpoint type: **120 requests/minute per client IP** (`app.rate-limit.requests-per-minute`, in-memory sliding window, not Redis-backed, so it is per-instance and resets if api-service restarts).
 
-Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+On exceeding the limit it returns `429` with:
+```json
+{ "status": 429, "error": "Too Many Requests", "message": "Rate limit exceeded" }
+```
+There are currently no `X-RateLimit-*` response headers.
+
+---
+
+## search-service API (separate microservice)
+
+`search-service` is a standalone Spring Boot service backed by Elasticsearch; it is called internally (e.g. by worker-service to index messages) and is not exposed to browser clients through the main api-service. Base path `/api/v1/search` on its own port/container.
+
+### POST /api/v1/search/index
+Body (`IndexMessageRequest`): `{id, content, roomId, senderId, senderUsername, messageType, createdAt}`.
+**Response** `201 Created`: `{"status": "indexed", "id": "<messageId>"}`
+
+### GET /api/v1/search/messages?q=&roomId=&limit=50&offset=0
+`limit` is capped server-side at 200. Returns a `SearchResult` object (Elasticsearch-backed).
+
+### DELETE /api/v1/search/messages/{messageId}
+**Response**: `{"status": "deleted", "id": "<messageId>"}`
+
+### GET /api/v1/search/health
+`{"status": "ok", "service": "search-service"}`

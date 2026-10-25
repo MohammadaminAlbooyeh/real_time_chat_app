@@ -2,20 +2,27 @@
 
 ## Overview
 
-The application includes a comprehensive monitoring stack:
+`docker-compose.yml` wires up a monitoring stack alongside the four Java services:
 
 | Component | Purpose | Port |
 |-----------|---------|------|
 | **Prometheus** | Metrics collection and alerting | 9090 |
-| **Grafana** | Metrics visualization and dashboards | 3001 |
-| **Jaeger** | Distributed tracing | 16686 |
-| **Sentry** | Error tracking | - |
+| **Grafana** | Metrics visualization and dashboards | 3001 (container port 3000) |
+| **Jaeger** | Distributed tracing | UI 16686, OTLP 4318 |
+| **Sentry** | Error tracking (config only, see below) | - |
+
+**Important caveat, verified against the code:** none of the four Spring Boot services (`api-service`, `websocket-service`, `worker-service`, `search-service`) currently depend on Micrometer, Spring Boot Actuator, the OpenTelemetry Java agent, or the Sentry Java SDK (checked every `pom.xml` under `services/*/pom.xml` — none list those artifacts). That means:
+- There is **no `/metrics` endpoint** exposed by any service today, despite `monitoring/prometheus.yml` listing scrape targets for them.
+- There is **no distributed tracing instrumentation** sending spans to Jaeger today, despite `monitoring/jaeger-config.yml` existing.
+- There is **no Sentry SDK initialization** in any service, despite `monitoring/sentry.conf` existing.
+
+The config files below describe the *intended* wiring and are useful scaffolding, but as of this writing the only real, working health signals are the custom `HealthController` (`GET /health`, `GET /health/db`) in `api-service` and `GET /api/v1/search/health` in `search-service`. `websocket-service` and `worker-service` have **no health endpoint at all today** (verified: no controller or route matching `/health` exists in either service's source) — their only observable liveness signal is `docker compose ps`/container state and their stdout logs. Treat the Prometheus/Jaeger/Sentry sections as "infrastructure ready, instrumentation pending" rather than "live today." Adding Micrometer (`spring-boot-starter-actuator` + `micrometer-registry-prometheus`) to each service's `pom.xml` and exposing `/actuator/prometheus` is the natural next step to make the Prometheus section accurate.
 
 ## Prometheus
 
 ### Configuration
 
-Prometheus configuration is in `monitoring/prometheus.yml`:
+`monitoring/prometheus.yml` (real, as committed):
 
 ```yaml
 global:
@@ -42,247 +49,101 @@ scrape_configs:
   - job_name: "redis"
     static_configs:
       - targets: ["redis-exporter:9121"]
+
+rule_files:
+  - "alerting-rules.yml"
 ```
 
-### Metrics Endpoints
-
-Each FastAPI service exposes Prometheus metrics via the `prometheus-fastapi-instrumentator` or manual instrumentation:
-
-**API Service** (`http://api-service:8000/metrics`):
-- `http_requests_total` - Total HTTP requests by method, path, status
-- `http_request_duration_seconds` - Request duration histogram
-- `http_requests_in_progress` - Currently in-flight requests
-
-**WebSocket Service** (`http://websocket-service:8001/metrics`):
-- `websocket_active_connections` - Current active connections
-- `websocket_messages_sent_total` - Messages sent through WebSocket
-- `websocket_messages_received_total` - Messages received through WebSocket
-- `websocket_connection_duration_seconds` - Connection duration histogram
-- `websocket_errors_total` - WebSocket error count
-
-**Search Service** (`http://search-service:8002/metrics`):
-- `search_requests_total` - Total search requests
-- `search_request_duration_seconds` - Search latency
-- `elasticsearch_index_size_bytes` - ES index size
+The ports (8000/8001/8002) do match each service's real `server.port` in `application.yml`. However:
+- None of the three services actually expose Prometheus-format metrics at those ports yet (see caveat above) — Prometheus will scrape them and get connection errors or 404s, not metrics, until instrumentation is added.
+- `postgres-exporter` and `redis-exporter` are **not** defined as services in `docker-compose.yml` — those scrape targets will simply fail to resolve/connect until those exporter containers are actually added.
 
 ### Alerting Rules
 
-Alerting rules are defined in `monitoring/alerting-rules.yml`:
+`monitoring/alerting-rules.yml` (real, as committed):
 
-| Alert | Condition | Severity | Description |
-|-------|-----------|----------|-------------|
-| `HighErrorRate` | 5xx rate > 5% over 5 min | Critical | HTTP error rate threshold exceeded |
-| `HighLatency` | p95 latency > 1s over 5 min | Warning | Response times degrading |
-| `ServiceDown` | `up == 0` for 1 min | Critical | Service is unreachable |
-| `LowWebSocketConnections` | Connections < 10 for 5 min | Warning | Unusually low connection count |
-| `DatabaseConnectionHigh` | Connections > 50 for 5 min | Warning | Database connection pool near limit |
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| `HighErrorRate` | `rate(http_requests_total{status=~"5.."}[5m]) > 0.05` | Critical |
+| `HighLatency` | p95 of `http_request_duration_seconds_bucket` over 5m > 1s | Warning |
+| `ServiceDown` | `up == 0` for 1 min | Critical |
+| `LowWebSocketConnections` | `websocket_active_connections < 10` for 5 min | Warning |
+| `DatabaseConnectionHigh` | `pg_stat_activity_count > 50` for 5 min | Warning |
 
-Alerts are evaluated every 15 seconds (Prometheus `evaluation_interval`).
+These rules reference metric names (`http_requests_total`, `websocket_active_connections`, `pg_stat_activity_count`, etc.) that nothing in the current codebase emits — they will never fire as written until the corresponding exporters/instrumentation exist. They're a reasonable target shape for when Actuator/Micrometer is added.
 
 ## Grafana
 
 ### Access
 
-- URL: `http://localhost:3001` (mapped to Grafana port 3000)
-- Default credentials: `admin` / `admin`
+- URL: `http://localhost:3001` (container listens on 3000, mapped to host 3001 per `docker-compose.yml`)
+- Image is built from `monitoring/grafana/Dockerfile`, with provisioning under `monitoring/grafana/provisioning/` (`datasources.yml`, `dashboards.yml`) pointing Grafana at Prometheus (`http://prometheus:9090`) and auto-loading the JSON dashboards in `monitoring/grafana/dashboards/`.
 
-### Provisioning
+### Pre-provisioned dashboard files (present in the repo)
 
-Dashboards and data sources are auto-provisioned on startup:
+- `system-health.json`
+- `api-performance.json`
+- `websocket-connections.json`
+- `message-throughput.json`
+- `database-metrics.json`
 
-**Data Sources** (`monitoring/grafana/provisioning/datasources.yml`):
-- **Prometheus** - `http://prometheus:9090` (default source)
-
-**Dashboard Provider** (`monitoring/grafana/provisioning/dashboards.yml`):
-- Loads dashboards from `/var/lib/grafana/dashboards`
-
-### Pre-Provisioned Dashboards
-
-**1. System Health** (`monitoring/grafana/dashboards/system-health.json`)
-- CPU and memory usage per container
-- Service up/down status
-- Database connection count
-- Redis memory usage
-- Disk I/O
-
-**2. API Performance** (`monitoring/grafana/dashboards/api-performance.json`)
-- Request rate by endpoint (rps)
-- Response time percentiles (p50, p95, p99)
-- Error rate by status code
-- Request distribution across services
-- Slowest endpoints
-
-**3. WebSocket Connections** (`monitoring/grafana/dashboards/websocket-connections.json`)
-- Active connections over time
-- Connection rate (connects/disconnects per second)
-- Messages per second
-- Connection duration distribution
-- Room-level connection counts
-
-**4. Message Throughput** (`monitoring/grafana/dashboards/message-throughput.json`)
-- Messages sent per second
-- Messages by type (text, image, file, system)
-- Peak messaging times
-- Average message size
-- Attachment upload rate
-
-**5. Database Metrics** (`monitoring/grafana/dashboards/database-metrics.json`)
-- Query execution time
-- Active connections
-- Transactions per second
-- Cache hit ratio
-- Table size and index usage
-- Slow query monitoring
-
-### Creating Custom Dashboards
-
-1. Log in to Grafana at `http://localhost:3001`
-2. Navigate to Dashboards → New Dashboard
-3. Add panels with PromQL queries
-4. Export as JSON and save to `monitoring/grafana/dashboards/`
-
-**Useful PromQL queries:**
-```promql
-# Request rate per endpoint
-rate(http_requests_total{job="api-service"}[5m])
-
-# Error rate
-rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100
-
-# p95 latency
-histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
-
-# Active WebSocket connections
-websocket_active_connections{job="websocket-service"}
-
-# Database connections
-pg_stat_activity_count{job="postgres"}
-```
+These dashboard JSON files query the same not-yet-emitted metric names described above, so they will render empty/"No data" panels until the services are instrumented (or until `postgres-exporter`/`redis-exporter` containers backing the Postgres/Redis panels are added to `docker-compose.yml`).
 
 ## Jaeger (Distributed Tracing)
 
-### Configuration
-
-Jaeger configuration is in `monitoring/jaeger-config.yml`:
-
-```yaml
-service:
-  name: real-time-chat
-  version: 1.0.0
-
-sampler:
-  type: const
-  param: 1
-
-reporter:
-  queueSize: 100
-  bufferFlushInterval: 1
-
-collector:
-  endpoint: http://jaeger:14268/api/traces
-```
-
-### Access
+`monitoring/jaeger-config.yml` (real, as committed) configures a Jaeger client with a constant (100%) sampler and a collector endpoint, and `docker-compose.yml` runs `jaegertracing/all-in-one` with the OTLP collector enabled (`COLLECTOR_OTLP_ENABLED=true`, port 4318) and the UI on 16686.
 
 - UI: `http://localhost:16686`
-- OTLP HTTP endpoint: `http://jaeger:4318`
+- OTLP HTTP endpoint: `http://jaeger:4318` (reachable by other containers on `chat-network`)
 
-### Traced Operations
-
-The following operations are traced across services:
-- HTTP request lifecycle (incoming request → database query → response)
-- WebSocket message flow (client → server → broadcast)
-- Celery task execution (enqueue → process → complete)
-- Redis pub/sub event propagation
-- Elasticsearch indexing and search operations
-
-### Viewing Traces
-
-1. Open Jaeger UI at `http://localhost:16686`
-2. Select service: `real-time-chat`
-3. Choose operation, tags, or time range
-4. Click "Find Traces"
-
-Each trace shows:
-- Service-to-service call timing
-- Database query duration
-- Redis operation timing
-- Error locations and stack traces
+As noted above, no service currently ships an OpenTelemetry/Jaeger client dependency, so no traces are actually produced yet — `jaeger-config.yml` describes the intended client config for whichever service(s) you instrument, not an active integration.
 
 ## Sentry (Error Tracking)
 
-### Configuration
+`monitoring/sentry.conf` (real, as committed):
 
-Sentry configuration is in `monitoring/sentry.conf`. Each service initializes the Sentry SDK with its DSN:
-
-```python
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-
-sentry_sdk.init(
-    dsn="https://your-dsn@sentry.io/project-id",
-    integrations=[
-        FastApiIntegration(),
-        SqlalchemyIntegration(),
-    ],
-    traces_sample_rate=1.0,
-    environment="production",
-)
+```ini
+[sentry]
+dsn = https://your-sentry-dsn@sentry.io/your-project-id
+environment = production
+traces_sample_rate = 0.2
+profiles_sample_rate = 0.1
+send_default_pii = false
 ```
 
-### Events Captured
-
-- Unhandled exceptions (500 errors)
-- Slow requests (>2s)
-- Database query errors
-- WebSocket disconnection errors
-- Celery task failures
-- Elasticsearch errors
-- JWT validation failures
-
-### Sentry Alerts
-
-Configure alerts in Sentry for:
-- Error rate spikes (>1% of requests)
-- New error types appearing
-- Critical errors (database connection failures, auth failures)
-- Performance degradation (p95 > 3s)
+This is a template for whichever Sentry SDK you wire in — no service currently depends on `sentry-spring-boot-starter` or any Sentry Java artifact, so no errors are actually reported to Sentry today. To make this real, add `io.sentry:sentry-spring-boot-starter` to a service's `pom.xml`, point `sentry.dsn` at your real DSN (via `SENTRY_DSN` env var), and Spring Boot's auto-configuration picks it up.
 
 ## Logging
 
-All services log to stdout (Docker-friendly) with structured JSON format:
+All services log via SLF4J/Logback (Spring Boot's default), controlled per service by the `LOG_LEVEL` env var mapped in `application.yml`, e.g.:
 
-```json
-{
-  "timestamp": "2025-06-04T12:00:00Z",
-  "level": "INFO",
-  "service": "api-service",
-  "request_id": "uuid",
-  "method": "GET",
-  "path": "/api/v1/rooms",
-  "status": 200,
-  "duration_ms": 45,
-  "user_id": "uuid"
-}
+```yaml
+logging:
+  level:
+    com.chatapp.api: ${LOG_LEVEL:INFO}
 ```
 
-### Log Levels
+Logs go to stdout/stderr by default, which is Docker-friendly (`docker compose logs -f <service>`), but there is no structured JSON log format or log aggregation (ELK/Loki) configured in this repo — that would be an addition, not an existing feature.
 
-- **ERROR** - Application errors requiring immediate attention
-- **WARNING** - Potential issues (slow queries, retries)
-- **INFO** - Normal operations (request completion, user actions)
-- **DEBUG** - Development details (only in development mode)
+## Current, Working Health Checks
+
+Until the above instrumentation is added, use these real endpoints to check service health:
+
+| Service | Endpoint | Returns |
+|---------|----------|---------|
+| api-service | `GET /health` | `{"status":"ok","service":"api-service"}` |
+| api-service | `GET /health/db` | DB connectivity check via `SELECT 1` |
+| search-service | `GET /api/v1/search/health` | `{"status":"ok","service":"search-service"}` |
+| websocket-service | *(none)* | no `/health` endpoint exists — check `docker compose ps` / logs instead |
+| worker-service | *(none)* | no `/health` endpoint exists — check `docker compose ps` / logs instead |
+| postgres | `pg_isready -U postgres` (Docker healthcheck) | used by `docker-compose.yml`'s `condition: service_healthy` |
+| elasticsearch | `GET http://localhost:9200` | cluster info |
 
 ## Production Monitoring Checklist
 
-- [ ] Prometheus targets all show `UP` status
-- [ ] Grafana dashboards display data correctly
-- [ ] Alerting rules configured and tested
-- [ ] Alert notifications configured (email, Slack, PagerDuty)
-- [ ] Jaeger traces visible for all services
-- [ ] Sentry capturing errors correctly
-- [ ] Log aggregation set up (ELK, Loki, etc.)
-- [ ] Metrics retention configured (default: 15 days Prometheus)
-- [ ] Dashboard backups scheduled
-- [ ] Performance baselines established
+- [ ] Add Micrometer + Prometheus registry (or Spring Boot Actuator) to each service so `monitoring/prometheus.yml`'s scrape targets actually return metrics
+- [ ] Add `postgres-exporter` and `redis-exporter` containers to `docker-compose.yml` if you want the Postgres/Redis panels and alerts to work
+- [ ] Add an OpenTelemetry/Jaeger client to the services you want traced
+- [ ] Add the Sentry Spring Boot starter and a real `SENTRY_DSN` if you want error tracking
+- [ ] Once metrics exist: verify Prometheus targets show `UP`, Grafana dashboards render data, and alerting rules fire in a test
+- [ ] Set up log aggregation (ELK, Loki, etc.) if centralized logs are needed beyond `docker compose logs`

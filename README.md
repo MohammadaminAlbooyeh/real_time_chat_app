@@ -1,26 +1,22 @@
 # Real-Time Chat Application
 
-A **production-grade, scalable real-time chat platform** built with microservices architecture. Supports web, desktop (Electron), and mobile (React Native) clients with advanced features like file uploads, full-text search, message reactions, and presence tracking.
-
-[![CI](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/ci.yml/badge.svg)](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/ci.yml)
-[![CD](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/cd.yml/badge.svg)](https://github.com/MohammadaminAlbooyeh/real_time_chat_app/actions/workflows/cd.yml)
-[![Coverage](https://codecov.io/gh/MohammadaminAlbooyeh/real_time_chat_app/branch/master/graph/badge.svg)](https://codecov.io/gh/MohammadaminAlbooyeh/real_time_chat_app)
+A **production-grade, scalable real-time chat platform** built with a Java/Spring Boot microservices architecture. Supports web, desktop (Electron), and mobile (React Native/Expo) clients with file uploads, full-text search, message reactions, and presence tracking.
 
 ---
 
 ## 🎯 Key Features
 
-- ✅ **Real-Time Messaging** - WebSocket-based instant message delivery with sub-100ms latency
+- ✅ **Real-Time Messaging** - WebSocket-based instant message delivery
 - ✅ **Multi-Platform Clients** - Web (React), Desktop (Electron), Mobile (React Native/Expo)
 - ✅ **User Authentication** - JWT-based auth with refresh tokens and session management
 - ✅ **Message Features** - Reactions, attachments, edit/delete, typing indicators
 - ✅ **Advanced Search** - Full-text search powered by Elasticsearch
 - ✅ **User Relationships** - Friend requests, relationships, user discovery
-- ✅ **File Uploads** - Secure file handling with validation
-- ✅ **Presence Tracking** - Online/offline status and last seen tracking
-- ✅ **Async Tasks** - Background jobs via Celery (notifications, maintenance, indexing)
+- ✅ **File Uploads** - Type/size-validated file handling (stored on local disk)
+- ✅ **Presence Tracking** - Online/offline status via Redis pub/sub
+- ✅ **Scheduled Maintenance** - Background jobs via Spring `@Scheduled` (notifications, cleanup, indexing)
 - ✅ **Monitoring & Observability** - Prometheus, Grafana, Jaeger tracing
-- ✅ **Production Ready** - Docker, Nginx, security middleware, CI/CD
+- ✅ **Containerized** - Docker Compose, Nginx reverse proxy, security middleware
 
 ---
 
@@ -43,32 +39,32 @@ A **production-grade, scalable real-time chat platform** built with microservice
          │     Ports: 80/443                         │
          └────────┬──────────────────────────────────┘
                   │
-        ┌─────────┼─────────┬──────────────┐
-        │         │         │              │
-┌───────▼──────┐  │  ┌──────▼──────┐  ┌───▼──────────┐
-│  API Service │  │  │WebSocket    │  │Search Service│
-│  (FastAPI)   │  │  │Service      │  │(FastAPI)     │
-│  Port: 8000  │  │  │(FastAPI)    │  │Port: 8002    │
-│              │  │  │Port: 8001   │  │              │
-└──────┬───────┘  │  └──────┬──────┘  └───┬──────────┘
-       │          │         │              │
-       │          │         │         ┌────▼──────────┐
-       │          │         │         │ Elasticsearch │
-       │          │         │         │   :9200       │
-       │          │         │         └───────────────┘
-       │          └─────────┼─────────┐
-       │                    │         │
-   ┌───▼────────────────────▼──┐  ┌──▼─────────┐
-   │      PostgreSQL (DB)      │  │  Redis     │
-   │   Primary Data Store      │  │ Cache/Pub-Sub
-   │      Port: 5432           │  │ Port: 6379 │
-   └───────────────────────────┘  └──────┬─────┘
-                                         │
-                                   ┌─────▼──────────┐
-                                   │ Worker Service │
-                                   │  (Celery)      │
-                                   │ Async Tasks    │
-                                   └────────────────┘
+        ┌─────────┼──────────────┐
+        │                        │
+┌───────▼──────┐        ┌────────▼──────┐
+│  API Service │        │  WebSocket     │
+│ (Spring Boot)│        │  Service       │
+│  Port: 8000  │        │ (Spring Boot)  │
+│              │        │  Port: 8001    │
+└──────┬───────┘        └──────┬─────────┘
+       │                       │
+   ┌───▼────────────────────▼──┐  ┌────────────────┐
+   │      PostgreSQL (DB)      │  │  Redis          │
+   │   Primary Data Store      │  │ Cache/Pub-Sub   │
+   │      Port: 5432           │  │ Port: 6379      │
+   └────────────────────────────┘  └───────┬─────────┘
+                                            │
+                                      ┌─────▼──────────┐
+                                      │ Worker Service │
+                                      │ (Spring Boot,  │
+                                      │  @Scheduled)   │
+                                      └────────────────┘
+
+   ┌──────────────┐        ┌───────────────┐
+   │Search Service│───────▶│ Elasticsearch │
+   │(Spring Boot) │        │    :9200      │
+   │  Port: 8002  │        └───────────────┘
+   └──────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
 │                  MONITORING & OBSERVABILITY                      │
@@ -78,6 +74,8 @@ A **production-grade, scalable real-time chat platform** built with microservice
 └──────────────────┴──────────────────┴──────────────────────────────┘
 ```
 
+Note: in `docker-compose.yml`, the `api-service`, `websocket-service`, and `worker-service` all depend on Postgres and Redis directly; `search-service` depends only on Elasticsearch. `nginx` proxies to `api-service` and `websocket-service`; the search service is called by the worker (for indexing) and by clients that call it directly, not fronted by Nginx.
+
 ---
 
 ## 📁 Project Structure
@@ -85,145 +83,71 @@ A **production-grade, scalable real-time chat platform** built with microservice
 ```
 real-time-chat-app/
 │
-├── 📂 services/                    # Backend microservices
-│   ├── api-service/               # REST API gateway
-│   │   ├── routes/               # API endpoints (auth, users, rooms, messages, etc.)
-│   │   ├── models/               # SQLAlchemy ORM models
-│   │   ├── schemas/              # Pydantic request/response models
-│   │   ├── middleware/           # Auth, CORS, error handling
-│   │   ├── config.py             # Configuration management
-│   │   ├── database.py           # Database connection
-│   │   ├── main.py               # FastAPI app initialization
-│   │   └── requirements.txt      # Dependencies
+├── 📂 services/                    # Backend microservices (Java 21, Spring Boot 3.5, Maven)
+│   ├── api-service/               # REST API gateway (Spring MVC)
+│   │   ├── src/main/java/com/chatapp/api/
+│   │   │   ├── controller/       # REST controllers (auth, users, rooms, messages, upload, etc.)
+│   │   │   ├── model/            # JPA entities (User, Room, Message, ...)
+│   │   │   ├── repository/       # Spring Data JPA repositories
+│   │   │   ├── service/          # Business logic (MessageService, RoomService, UserService)
+│   │   │   ├── security/         # JwtService, JwtAuthFilter
+│   │   │   ├── middleware/       # RateLimitingFilter, GlobalExceptionHandler
+│   │   │   ├── config/           # SecurityConfig, WebConfig (CORS), RedisConfig
+│   │   │   └── dto/              # Request/response records
+│   │   └── pom.xml
 │   │
-│   ├── websocket-service/        # Real-time WebSocket service
-│   │   ├── message_handler.py   # WebSocket message processing
-│   │   ├── connection_manager.py # Connection lifecycle
-│   │   ├── main.py              # WebSocket server
-│   │   └── requirements.txt
+│   ├── websocket-service/        # Real-time WebSocket service (Spring `TextWebSocketHandler`)
+│   │   ├── src/main/java/com/chatapp/websocket/
+│   │   │   ├── ws/               # ChatWebSocketHandler (the /ws endpoint)
+│   │   │   ├── message/          # MessageHandler - inbound event processing
+│   │   │   ├── manager/          # ConnectionManager - session/room tracking
+│   │   │   ├── presence/         # PresenceTracker - online/offline via Redis
+│   │   │   ├── redis/            # RedisPublisher, RoomEventSubscriber
+│   │   │   └── repository/       # Direct JDBC-style message writes
+│   │   └── pom.xml
 │   │
 │   ├── search-service/           # Full-text search (Elasticsearch)
-│   │   ├── routes.py            # Search endpoints
-│   │   ├── elasticsearch_client.py
-│   │   ├── models.py            # Index models
-│   │   ├── main.py
-│   │   └── requirements.txt
+│   │   ├── src/main/java/com/chatapp/search/
+│   │   │   ├── controller/       # SearchController (index/search/delete)
+│   │   │   └── client/           # SearchService (Elasticsearch client wrapper)
+│   │   └── pom.xml
 │   │
-│   └── worker-service/           # Async task queue (Celery)
-│       ├── tasks/               # Celery task definitions
-│       ├── celery_beat.py      # Scheduled tasks
-│       ├── main.py
-│       └── requirements.txt
+│   └── worker-service/           # Scheduled maintenance jobs (Spring `@Scheduled`)
+│       ├── src/main/java/com/chatapp/worker/
+│       │   ├── task/             # ScheduledTasks (cron-based jobs)
+│       │   └── service/          # MaintenanceService, UserStatusService, RoomCleanupService,
+│       │                         # NotificationService, SearchIndexService
+│       └── pom.xml
 │
 ├── 📂 frontend/                    # Client applications
-│   ├── web/                       # React web application
-│   │   ├── src/
-│   │   │   ├── pages/            # ChatPage, LoginPage, ProfilePage
-│   │   │   ├── components/       # Reusable UI components
-│   │   │   ├── store/            # Redux state management
-│   │   │   ├── services/         # API client, WebSocket service
-│   │   │   ├── hooks/            # Custom React hooks
-│   │   │   ├── utils/            # Helper functions
-│   │   │   ├── styles/           # CSS stylesheets
-│   │   │   ├── main.jsx          # React entry point
-│   │   │   └── App.jsx           # Root component
-│   │   ├── public/               # Static assets
-│   │   ├── vite.config.js        # Vite build config
-│   │   ├── package.json
-│   │   └── Dockerfile
-│   │
-│   ├── desktop/                   # Electron desktop application
-│   │   ├── src/                  # React components (shared with web)
-│   │   ├── main.js              # Electron main process
-│   │   ├── preload.js           # IPC bridge
-│   │   ├── package.json
-│   │   └── Dockerfile
-│   │
-│   └── mobile/                    # React Native mobile application
-│       ├── App.js               # Root component
-│       ├── screens/             # Screen components
-│       ├── navigation/          # React Navigation
-│       ├── components/          # Reusable components
-│       ├── services/            # API client
-│       ├── app.json             # Expo configuration
-│       └── package.json
+│   ├── web/                       # React 18 + Vite + Redux Toolkit web app
+│   ├── desktop/                   # Electron + React + Vite desktop app
+│   └── mobile/                    # Expo / React Native mobile app
 │
-├── 📂 database/                    # Database schema & migrations
-│   ├── migrations/
-│   │   ├── versions/            # Alembic migration files
-│   │   ├── env.py
-│   │   └── script.py.mako
-│   ├── schema.sql               # Database schema
-│   ├── indexes.sql              # Database indexes
+├── 📂 database/                    # Database schema (no migration framework)
+│   ├── schema.sql               # Full schema, applied via docker-entrypoint-initdb.d
+│   ├── indexes.sql              # Indexes, applied via docker-entrypoint-initdb.d
 │   └── seeds/                   # Seed data for development
 │
-├── 📂 shared/                      # Shared utilities
-│   ├── models/                  # Shared data models
-│   ├── schemas/                 # Common Pydantic schemas
-│   ├── utils/                   # Utility functions
-│   └── constants/               # Constants & enums
-│
 ├── 📂 monitoring/                  # Monitoring & observability
-│   ├── prometheus.yml           # Prometheus config
+│   ├── prometheus.yml
 │   ├── grafana/
-│   │   ├── dashboards/         # Grafana dashboard definitions
-│   │   ├── provisioning/       # Data source configs
-│   │   └── Dockerfile
-│   └── jaeger/                  # Distributed tracing config
+│   └── jaeger-config.yml
 │
 ├── 📂 nginx/                       # Reverse proxy configuration
-│   ├── nginx.conf               # Main Nginx config
-│   ├── ssl/                     # SSL certificates
-│   └── Dockerfile
+│   ├── nginx.conf
+│   └── ssl/
 │
-├── 📂 scripts/                     # Utility scripts
-│   ├── backup.sh                # Database backup
-│   ├── deploy.sh                # Deployment script
-│   ├── migration.sh              # Database migration
-│   └── seed.sh                  # Seed data script
+├── 📂 scripts/                     # Utility shell scripts (backup, deploy, health-check, etc.)
 │
-├── 📂 tests/                       # Test suite
-│   ├── unit/                    # Unit tests
-│   │   ├── test_auth.py
-│   │   ├── test_models.py
-│   │   ├── test_validators.py
-│   │   └── test_utils.py
-│   ├── integration/             # Integration tests
-│   │   ├── test_api_endpoints.py
-│   │   ├── test_websocket.py
-│   │   ├── test_message_flow.py
-│   │   └── test_database.py
-│   ├── e2e/                     # End-to-end tests
-│   │   ├── test_chat_flow.py
-│   │   └── test_user_journey.py
-│   └── conftest.py              # Pytest fixtures
+├── 📂 tests/                       # Test suites (per-service tests live under each service's src/test/java)
 │
-├── 📂 .github/                     # GitHub configuration
-│   └── workflows/
-│       ├── ci.yml               # Continuous Integration
-│       ├── cd.yml               # Continuous Deployment
-│       └── security.yml         # Security scanning
+├── 📂 docs/                        # Documentation (see docs/README.md for the index)
 │
-├── 📂 docs/                        # Documentation
-│   ├── ARCHITECTURE.md          # System design
-│   ├── API_REFERENCE.md         # API endpoints
-│   ├── INSTALLATION.md          # Setup instructions
-│   ├── DEPLOYMENT.md            # Production deployment
-│   ├── TROUBLESHOOTING.md       # Common issues
-│   ├── WEBSOCKET_EVENTS.md     # WebSocket protocol
-│   ├── MONITORING.md            # Observability setup
-│   ├── SECURITY.md              # Security guidelines
-│   ├── SCALING.md               # Performance & scaling
-│   └── CONTRIBUTING.md          # Contribution guide
-│
-├── docker-compose.yml           # Development compose
+├── docker-compose.yml           # Base compose file
 ├── docker-compose.dev.yml       # Dev overrides
 ├── Makefile                     # Build & run commands
-├── .env.example                 # Environment variables template
-├── .env.production              # Production variables
-├── .dockerignore
-├── .gitignore
-├── version.txt                  # Current version
+├── .env.example / .env.production
 └── README.md                    # This file
 ```
 
@@ -235,7 +159,7 @@ real-time-chat-app/
 
 - **Docker** 24+ & **Docker Compose** v2.20+
 - **Node.js** 20+ (for local frontend development)
-- **Python** 3.12+ (for local backend development)
+- **Java 21** & **Maven 3.9+** (for local backend development outside Docker)
 
 ### 1️⃣ Clone & Setup
 
@@ -257,27 +181,32 @@ make dev
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-### 3️⃣ Run Database Migrations
+Each Java service builds its own image from its `Dockerfile` (Maven build inside the image). To build/test a single service locally without Docker:
 
 ```bash
-make migrate
-
-# OR
-docker compose exec api-service alembic upgrade head
+cd services/api-service
+mvn clean install   # build
+mvn test            # run tests
 ```
 
-### 4️⃣ Seed Sample Data (Optional)
+### 3️⃣ Database Schema
 
-```bash
-make seed
-```
+There is **no migration tool** (no Flyway/Liquibase/Alembic). The schema is applied automatically the first time the Postgres container starts, via `docker-entrypoint-initdb.d`:
 
-### 5️⃣ Access Application
+- `database/schema.sql` - tables
+- `database/indexes.sql` - indexes
+- `database/seeds/` - optional seed data
+
+To change the schema, edit `database/schema.sql`/`indexes.sql` directly and recreate the Postgres volume (`docker compose down -v && docker compose up`), or apply the SQL manually against a running database with `psql`. The `make migrate` Makefile target is a leftover from the old stack and does not do anything useful — the Spring Boot `app.jar` has no `migrate` subcommand.
+
+### 4️⃣ Access Application
 
 | Service | URL |
 |---------|-----|
 | 🌐 Web UI | http://localhost:3000 |
-| 🔌 API Docs | http://localhost:8000/docs |
+| 🔌 API Service | http://localhost:8000 |
+| 🔌 WebSocket Service | ws://localhost:8001/ws |
+| 🔍 Search Service | http://localhost:8002 |
 | 📊 Grafana | http://localhost:3001 |
 | 🔍 Jaeger | http://localhost:16686 |
 | 📈 Prometheus | http://localhost:9090 |
@@ -289,38 +218,32 @@ make seed
 ### Backend
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Framework | FastAPI + SQLAlchemy | REST API & WebSocket |
+| Language/Runtime | Java 21 | All backend services |
+| Framework | Spring Boot 3.5 (Spring MVC, Spring WebSocket) | REST API & WebSocket |
+| Persistence | Spring Data JPA (api-service), direct JDBC-style repository (websocket-service) | Data access |
 | Database | PostgreSQL 16 | Primary data store |
-| Cache | Redis 7 | Session cache, pub/sub |
-| Search | Elasticsearch 8 | Full-text search |
-| Task Queue | Celery + Redis | Async task processing |
-| Auth | JWT + python-jose | Stateless authentication |
+| Cache | Redis 7 | Presence, pub/sub fan-out |
+| Search | Elasticsearch 8.12 | Full-text search |
+| Scheduling | Spring `@Scheduled` (cron) in worker-service | Maintenance/cleanup jobs |
+| Auth | JWT via `jjwt`, Spring Security, BCrypt | Stateless authentication |
+| Build | Maven | Per-service build/test |
 
 ### Frontend
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Web | React 18 + Redux Toolkit | Web application |
-| Desktop | Electron | Cross-platform desktop |
+| Web | React 18 + Redux Toolkit + Vite | Web application |
+| Desktop | Electron + React + Vite | Cross-platform desktop |
 | Mobile | React Native + Expo | iOS/Android application |
-| Bundler | Vite | Fast module bundling |
-| UI State | Redux Toolkit | Centralized state |
 
 ### Infrastructure
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | Containers | Docker | Containerization |
-| Orchestration | Docker Compose | Local dev & prod |
+| Orchestration | Docker Compose | Local dev & prod (no Kubernetes manifests in this repo) |
 | Proxy | Nginx | Reverse proxy + SSL |
 | Monitoring | Prometheus | Metrics collection |
 | Visualization | Grafana | Dashboard visualization |
 | Tracing | Jaeger | Distributed tracing |
-
-### CI/CD
-| Tool | Usage |
-|------|-------|
-| GitHub Actions | Automated testing, building, deploying |
-| Codecov | Code coverage tracking |
-| Docker Hub / GHCR | Container registry |
 
 ---
 
@@ -336,27 +259,33 @@ POST   /api/v1/auth/logout        # Sign out
 
 ### Users
 ```
-GET    /api/v1/users/me           # Get profile
-PATCH  /api/v1/users/me           # Update profile
-POST   /api/v1/users/me/change-password  # Change password
-GET    /api/v1/users/search       # Search users
+GET    /api/v1/users/me                     # Get profile
+PATCH  /api/v1/users/me                     # Update profile
+POST   /api/v1/users/me/change-password     # Change password
+GET    /api/v1/users/search?q=...           # Search users
+GET    /api/v1/users/{userId}               # Get a user by id
 ```
 
 ### Rooms
 ```
-POST   /api/v1/rooms              # Create room
-GET    /api/v1/rooms              # List rooms
-GET    /api/v1/rooms/{id}         # Get room details
-PATCH  /api/v1/rooms/{id}         # Update room
-DELETE /api/v1/rooms/{id}         # Delete room
+POST   /api/v1/rooms                        # Create room
+GET    /api/v1/rooms                        # List rooms
+GET    /api/v1/rooms/{roomId}               # Get room details
+PUT    /api/v1/rooms/{roomId}               # Update room
+DELETE /api/v1/rooms/{roomId}               # Delete room
+POST   /api/v1/rooms/{roomId}/members       # Add member
+DELETE /api/v1/rooms/{roomId}/members/{id}  # Remove member
+POST   /api/v1/rooms/{roomId}/leave         # Leave room
 ```
 
 ### Messages
 ```
-POST   /api/v1/messages           # Send message
-GET    /api/v1/rooms/{id}/messages  # List messages
-PATCH  /api/v1/messages/{id}      # Edit message
-DELETE /api/v1/messages/{id}      # Delete message
+GET    /api/v1/rooms/{roomId}/messages                       # List messages
+POST   /api/v1/rooms/{roomId}/messages                       # Send message
+PUT    /api/v1/rooms/{roomId}/messages/{messageId}            # Edit message
+DELETE /api/v1/rooms/{roomId}/messages/{messageId}            # Delete message
+POST   /api/v1/rooms/{roomId}/messages/{messageId}/reactions  # Add reaction
+DELETE /api/v1/rooms/{roomId}/messages/{messageId}/reactions/{reactionId}  # Remove reaction
 ```
 
 📖 **[Full API Documentation](docs/API_REFERENCE.md)**
@@ -365,18 +294,18 @@ DELETE /api/v1/messages/{id}      # Delete message
 
 ## 🔌 WebSocket Events
 
-Real-time events are transmitted via WebSocket at `ws://localhost:8001/ws`:
+Real-time events are transmitted via WebSocket at `ws://localhost:8001/ws?token=<jwt>`:
 
 ```javascript
 // Client → Server
-{ "type": "message:send", "data": { "room_id": "...", "content": "..." } }
-{ "type": "typing:start", "data": { "room_id": "..." } }
-{ "type": "room:join", "data": { "room_id": "..." } }
+{ "type": "message:send", "payload": { "room_id": "...", "content": "..." } }
+{ "type": "typing:start", "payload": { "room_id": "..." } }
+{ "type": "room:join", "payload": { "room_id": "..." } }
 
 // Server → Client
-{ "type": "message:new", "data": { "id": "...", "content": "...", ... } }
-{ "type": "user:typing", "data": { "user_id": "...", "room_id": "..." } }
-{ "type": "user:online", "data": { "user_id": "..." } }
+{ "type": "message:new", "payload": { "id": "...", "content": "...", ... } }
+{ "type": "typing:indicator", "payload": { "user_id": "...", "room_id": "...", "is_typing": true } }
+{ "type": "presence:online", "payload": { "user_id": "...", "username": "..." } }
 ```
 
 📖 **[WebSocket Protocol Details](docs/WEBSOCKET_EVENTS.md)**
@@ -387,65 +316,49 @@ Real-time events are transmitted via WebSocket at `ws://localhost:8001/ws`:
 
 ```bash
 # Build & start services
-make dev              # Development with hot-reload
+make dev              # Development compose with dev overrides
 make up               # Start services in background
 make down             # Stop services
 make build            # Build images
 
-# Database
-make migrate          # Run migrations
-make seed             # Seed sample data
-
-# Testing
-make test             # Run API tests
-docker compose exec api-service pytest --cov
+# Testing (per service, via Maven)
+make test-api         # cd services/api-service && mvn test
+make test-ws          # cd services/websocket-service && mvn test
+make test-worker      # cd services/worker-service && mvn test
+make test-search      # cd services/search-service && mvn test
+make test-all         # run all four
 
 # Cleanup
 make clean            # Remove containers & volumes
 make logs             # View service logs
 ```
 
-See **[Makefile](Makefile)** for all available commands.
+See **[Makefile](Makefile)** for all available commands. Note: the Makefile's `migrate` target is a dead leftover — see the "Database Schema" section above.
 
 ---
 
 ## 🧪 Testing
 
-The project includes comprehensive test coverage:
+Each Java service has its own JUnit test suite under `src/test/java`, run with Maven:
 
 ```bash
-# Run all tests
-docker compose exec api-service pytest --cov=. --cov-report=html
-
-# Run specific test suite
-docker compose exec api-service pytest tests/unit/
-docker compose exec api-service pytest tests/integration/
-docker compose exec api-service pytest tests/e2e/
-
-# Run linting
-docker compose exec api-service ruff check .
-
-# Run type checking
-docker compose exec api-service mypy .
+cd services/api-service && mvn test
+cd services/websocket-service && mvn test
+cd services/worker-service && mvn test
+cd services/search-service && mvn test
 ```
-
-**Test Coverage:**
-- ✅ Unit tests: Auth, models, validators, utilities
-- ✅ Integration tests: Database, WebSocket, API endpoints, message flow
-- ✅ E2E tests: Complete user journeys and chat flows
 
 ---
 
 ## 🔐 Security Features
 
-- ✅ **JWT Authentication** - Secure token-based auth with expiration
-- ✅ **Password Hashing** - bcrypt with salt
-- ✅ **CORS Protection** - Configurable allowed origins
-- ✅ **Rate Limiting** - Request throttling
-- ✅ **SQL Injection Prevention** - Parameterized queries via SQLAlchemy
-- ✅ **XSS Protection** - Input validation & sanitization
+- ✅ **JWT Authentication** - Stateless auth via `jjwt`, enforced by a custom `JwtAuthFilter` in Spring Security
+- ✅ **Password Hashing** - BCrypt
+- ✅ **CORS Protection** - Configurable allowed origins (`WebConfig`, backed by `ApiProperties`)
+- ✅ **Rate Limiting** - `RateLimitingFilter` servlet filter
+- ✅ **SQL Injection Prevention** - Parameterized queries via Spring Data JPA
+- ✅ **File Upload Validation** - Content-type allowlist & 50MB size limit (see `UploadController`)
 - ✅ **HTTPS/TLS** - Nginx SSL/TLS termination
-- ✅ **File Upload Validation** - Type & size verification
 
 📖 **[Security Guidelines](docs/SECURITY.md)**
 
@@ -453,12 +366,9 @@ docker compose exec api-service mypy .
 
 ## 📈 Monitoring & Observability
 
-The application includes production-grade observability:
-
 - **Prometheus** - Metrics collection (requests, latency, errors)
 - **Grafana** - Visual dashboards for real-time monitoring
 - **Jaeger** - Distributed tracing for request flow analysis
-- **Structured Logging** - JSON logs for easy parsing
 
 Access monitoring at:
 - Grafana Dashboard: http://localhost:3001
@@ -483,13 +393,9 @@ cp .env.production .env
 
 # Build and start services
 docker compose up -d
-
-# Run migrations
-docker compose exec api-service alembic upgrade head
 ```
 
-### Docker Swarm / Kubernetes
-The application is containerized and can be deployed to any orchestration platform.
+There is no migration step for production deploys — the schema SQL is applied once, when the Postgres volume is first initialized. This repository does not include Kubernetes manifests or a CI/CD pipeline configuration for deployment; it is containerized with Docker and can in principle be adapted to another orchestrator, but that adaptation does not exist here today.
 
 📖 **[Detailed Deployment Guide](docs/DEPLOYMENT.md)**
 
@@ -544,6 +450,8 @@ For issues, questions, or suggestions:
 
 ## 🎯 Roadmap
 
+Not yet implemented:
+
 - [ ] Push notifications (Firebase Cloud Messaging)
 - [ ] Message encryption (end-to-end)
 - [ ] Video/voice calls (WebRTC)
@@ -557,4 +465,4 @@ For issues, questions, or suggestions:
 
 ---
 
-**Made with ❤️ as a production-grade real-time chat platform**
+**A production-grade real-time chat platform, built on Java/Spring Boot.**
