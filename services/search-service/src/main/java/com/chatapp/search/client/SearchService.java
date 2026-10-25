@@ -21,8 +21,8 @@ import co.elastic.clients.elasticsearch.core.IndexResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
-import co.elastic.clients.elasticsearch.indices.ExistsResponse;
 import co.elastic.clients.elasticsearch.indices.IndexSettings;
+import co.elastic.clients.transport.endpoints.BooleanResponse;
 import jakarta.annotation.PostConstruct;
 
 @Service
@@ -41,7 +41,7 @@ public class SearchService {
     public void ensureIndex() {
         try {
             String index = props.getIndexName();
-            ExistsResponse exists = client.indices().exists(e -> e.index(index));
+            BooleanResponse exists = client.indices().exists(e -> e.index(index));
             if (!exists.value()) {
                 Map<String, Property> properties = new HashMap<>();
                 properties.put("id", Property.of(p -> p.keyword(k -> k)));
@@ -63,7 +63,7 @@ public class SearchService {
                 IndexSettings settings = IndexSettings.of(s -> s
                     .numberOfShards("1")
                     .numberOfReplicas("0")
-                    .analysis(an -> an.analyzers(analyzers))
+                    .analysis(an -> an.analyzer(analyzers))
                 );
 
                 TypeMapping mapping = TypeMapping.of(m -> m.properties(properties));

@@ -8,13 +8,4 @@ public record RoomCreate(
     @Size(max = 500) String description,
     boolean isPrivate
 ) {
-    public RoomCreate {
-        description = description != null ? description : null;
-    }
-
-    public RoomCreate(String name, String description, boolean isPrivate) {
-        this.name = name;
-        this.description = description;
-        this.isPrivate = isPrivate;
-    }
 }
