@@ -47,6 +47,10 @@ public class RelationshipController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Relationship already exists");
         }
 
+        if (relationshipRepository.existsBlock(userId, user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot send a request to this user");
+        }
+
         Relationship rel = new Relationship();
         rel.setRequesterId(user.getId());
         rel.setAddresseeId(userId);
@@ -123,6 +127,60 @@ public class RelationshipController {
         }).filter(r -> r != null).toList();
 
         return ResponseEntity.ok(requests);
+    }
+
+    @PostMapping("/block/{userId}")
+    public ResponseEntity<Map<String, String>> blockUser(@PathVariable UUID userId,
+                                                           @AuthenticationPrincipal User user) {
+        if (userId.equals(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot block yourself");
+        }
+        userRepository.findById(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Remove any existing relationship between the two users (friend/pending) before blocking.
+        relationshipRepository.findByRequesterIdAndAddresseeId(user.getId(), userId)
+            .ifPresent(relationshipRepository::delete);
+        relationshipRepository.findByRequesterIdAndAddresseeId(userId, user.getId())
+            .ifPresent(relationshipRepository::delete);
+
+        Relationship rel = new Relationship();
+        rel.setRequesterId(user.getId());
+        rel.setAddresseeId(userId);
+        rel.setStatus("blocked");
+        relationshipRepository.save(rel);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "User blocked"));
+    }
+
+    @DeleteMapping("/block/{userId}")
+    public ResponseEntity<Map<String, String>> unblockUser(@PathVariable UUID userId,
+                                                             @AuthenticationPrincipal User user) {
+        Relationship rel = relationshipRepository.findByRequesterIdAndAddresseeId(user.getId(), userId)
+            .filter(r -> "blocked".equals(r.getStatus()))
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Block not found"));
+
+        relationshipRepository.delete(rel);
+        return ResponseEntity.ok(Map.of("message", "User unblocked"));
+    }
+
+    @GetMapping("/blocked")
+    public ResponseEntity<List<Map<String, Object>>> listBlocked(@AuthenticationPrincipal User user) {
+        List<Relationship> rels = relationshipRepository.findByRequesterIdAndStatus(user.getId(), "blocked");
+
+        List<Map<String, Object>> blocked = rels.stream().map(rel -> {
+            var blockedUser = userRepository.findById(rel.getAddresseeId()).orElse(null);
+            if (blockedUser == null) return null;
+            return Map.<String, Object>of(
+                "id", blockedUser.getId(),
+                "username", blockedUser.getUsername(),
+                "displayName", blockedUser.getDisplayName(),
+                "avatarUrl", blockedUser.getAvatarUrl(),
+                "blockedAt", rel.getCreatedAt()
+            );
+        }).filter(b -> b != null).toList();
+
+        return ResponseEntity.ok(blocked);
     }
 
     @DeleteMapping("/{relationshipId}")

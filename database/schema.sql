@@ -42,8 +42,12 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     message_type VARCHAR(20) DEFAULT 'text' NOT NULL,
     reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    forwarded_from_id UUID REFERENCES messages(id) ON DELETE SET NULL,
     edited_at TIMESTAMPTZ,
     is_deleted BOOLEAN DEFAULT FALSE NOT NULL,
+    is_pinned BOOLEAN DEFAULT FALSE NOT NULL,
+    pinned_at TIMESTAMPTZ,
+    pinned_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );

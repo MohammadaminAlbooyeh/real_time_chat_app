@@ -178,6 +178,85 @@ public class MessageService {
         ));
     }
 
+    @Transactional
+    public MessageResponse pinMessage(UUID roomId, UUID messageId, User user) {
+        verifyMembership(roomId, user.getId());
+
+        Message msg = messageRepository.findByIdAndRoomId(messageId, roomId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+
+        if (msg.isDeleted()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot pin a deleted message");
+        }
+
+        msg.setPinned(true);
+        msg.setPinnedAt(LocalDateTime.now());
+        msg.setPinnedBy(user.getId());
+        msg = messageRepository.save(msg);
+
+        MessageResponse response = toMessageResponse(msg);
+        redisPublisherService.publish("room:" + roomId, Map.of(
+            "type", "message:pinned",
+            "payload", response
+        ));
+        return response;
+    }
+
+    @Transactional
+    public void unpinMessage(UUID roomId, UUID messageId, User user) {
+        verifyMembership(roomId, user.getId());
+
+        Message msg = messageRepository.findByIdAndRoomId(messageId, roomId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+
+        msg.setPinned(false);
+        msg.setPinnedAt(null);
+        msg.setPinnedBy(null);
+        messageRepository.save(msg);
+
+        redisPublisherService.publish("room:" + roomId, Map.of(
+            "type", "message:unpinned",
+            "payload", Map.of("roomId", roomId.toString(), "id", messageId.toString())
+        ));
+    }
+
+    public List<MessageResponse> getPinnedMessages(UUID roomId, User user) {
+        verifyMembership(roomId, user.getId());
+        return messageRepository.findByRoomIdAndIsPinnedTrueOrderByPinnedAtDesc(roomId)
+            .stream()
+            .map(this::toMessageResponse)
+            .toList();
+    }
+
+    @Transactional
+    public MessageResponse forwardMessage(UUID sourceRoomId, UUID messageId, UUID targetRoomId, User user) {
+        verifyMembership(sourceRoomId, user.getId());
+        verifyMembership(targetRoomId, user.getId());
+
+        Message original = messageRepository.findByIdAndRoomId(messageId, sourceRoomId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+
+        if (original.isDeleted()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot forward a deleted message");
+        }
+
+        Message forwarded = new Message();
+        forwarded.setRoomId(targetRoomId);
+        forwarded.setSenderId(user.getId());
+        forwarded.setContent(original.getContent());
+        forwarded.setMessageType(original.getMessageType());
+        forwarded.setForwardedFromId(original.getId());
+        forwarded = messageRepository.save(forwarded);
+        forwarded.setSender(user);
+
+        MessageResponse response = toMessageResponse(forwarded);
+        redisPublisherService.publish("room:" + targetRoomId, Map.of(
+            "type", "message:new",
+            "payload", response
+        ));
+        return response;
+    }
+
     public List<MessageResponse> searchMessages(String query, UUID roomId, User user, int limit) {
         List<UUID> roomIds;
         if (roomId != null) {

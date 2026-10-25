@@ -16,4 +16,9 @@ public interface RelationshipRepository extends JpaRepository<Relationship, UUID
     List<Relationship> findByUserIdAndStatus(@Param("userId") UUID userId, @Param("status") String status);
 
     List<Relationship> findByAddresseeIdAndStatus(UUID addresseeId, String status);
+    List<Relationship> findByRequesterIdAndStatus(UUID requesterId, String status);
+
+    @Query("SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM Relationship r " +
+           "WHERE r.requesterId = :blockerId AND r.addresseeId = :blockedId AND r.status = 'blocked'")
+    boolean existsBlock(@Param("blockerId") UUID blockerId, @Param("blockedId") UUID blockedId);
 }

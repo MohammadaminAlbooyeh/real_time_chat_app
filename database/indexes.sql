@@ -2,6 +2,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_room_pinned ON messages(room_id, is_pinned);
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

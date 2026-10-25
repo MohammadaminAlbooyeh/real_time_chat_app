@@ -35,10 +35,22 @@ public class Message extends BaseEntity {
     private UUID replyToId;
 
     @Column
+    private UUID forwardedFromId;
+
+    @Column
     private LocalDateTime editedAt;
 
     @Column(nullable = false)
     private boolean isDeleted = false;
+
+    @Column(nullable = false)
+    private boolean isPinned = false;
+
+    @Column
+    private LocalDateTime pinnedAt;
+
+    @Column
+    private UUID pinnedBy;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "roomId", insertable = false, updatable = false)
@@ -125,6 +137,38 @@ public class Message extends BaseEntity {
 
     public void setDeleted(boolean deleted) {
         isDeleted = deleted;
+    }
+
+    public UUID getForwardedFromId() {
+        return forwardedFromId;
+    }
+
+    public void setForwardedFromId(UUID forwardedFromId) {
+        this.forwardedFromId = forwardedFromId;
+    }
+
+    public boolean isPinned() {
+        return isPinned;
+    }
+
+    public void setPinned(boolean pinned) {
+        isPinned = pinned;
+    }
+
+    public LocalDateTime getPinnedAt() {
+        return pinnedAt;
+    }
+
+    public void setPinnedAt(LocalDateTime pinnedAt) {
+        this.pinnedAt = pinnedAt;
+    }
+
+    public UUID getPinnedBy() {
+        return pinnedBy;
+    }
+
+    public void setPinnedBy(UUID pinnedBy) {
+        this.pinnedBy = pinnedBy;
     }
 
     public Room getRoom() {

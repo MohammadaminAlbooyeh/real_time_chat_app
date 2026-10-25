@@ -59,6 +59,40 @@ public class MessageController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/pinned")
+    public ResponseEntity<java.util.List<MessageResponse>> getPinnedMessages(
+            @PathVariable UUID roomId,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(messageService.getPinnedMessages(roomId, user));
+    }
+
+    @PostMapping("/{messageId}/pin")
+    public ResponseEntity<MessageResponse> pinMessage(
+            @PathVariable UUID roomId,
+            @PathVariable UUID messageId,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(messageService.pinMessage(roomId, messageId, user));
+    }
+
+    @DeleteMapping("/{messageId}/pin")
+    public ResponseEntity<Void> unpinMessage(
+            @PathVariable UUID roomId,
+            @PathVariable UUID messageId,
+            @AuthenticationPrincipal User user) {
+        messageService.unpinMessage(roomId, messageId, user);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{messageId}/forward")
+    public ResponseEntity<MessageResponse> forwardMessage(
+            @PathVariable UUID roomId,
+            @PathVariable UUID messageId,
+            @Valid @RequestBody MessageForward payload,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(messageService.forwardMessage(roomId, messageId, payload.targetRoomId(), user));
+    }
+
     @PostMapping("/{messageId}/reactions")
     public ResponseEntity<ReactionResponse> addReaction(
             @PathVariable UUID roomId,
